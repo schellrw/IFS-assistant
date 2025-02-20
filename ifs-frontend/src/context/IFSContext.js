@@ -58,13 +58,25 @@ export const IFSProvider = ({ children }) => {
     }
   };
 
+  const addJournal = async (journalData) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/journals`, journalData);
+      await fetchSystem(); // Refresh system data
+      return response.data;
+    } catch (err) {
+      console.error('Error adding journal entry:', err);
+      throw err;
+    }
+  };
+
   const value = {
     system,
     loading,
     error,
     fetchSystem,
     addPart,
-    updatePart
+    updatePart,
+    addJournal
   };
 
   return (

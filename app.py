@@ -48,5 +48,16 @@ def test_connection():
         "timestamp": datetime.datetime.now().isoformat()
     })
 
+@app.route('/api/journals', methods=['POST'])
+def add_journal():
+    data = request.json
+    journal = Journal(
+        content=data['content'],
+        parts_present=data.get('parts_present', []),
+        emotions=data.get('emotions', [])
+    )
+    journal_id = demo_system.add_journal(journal)
+    return jsonify({"id": journal_id, "journal": journal.to_dict()})
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000) 
