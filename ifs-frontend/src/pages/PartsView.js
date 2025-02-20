@@ -38,7 +38,7 @@ const PartsView = () => {
           <Button 
             variant="contained" 
             color="primary"
-            onClick={() => navigate('/new-part')}
+            onClick={() => navigate('/parts/new')}
           >
             Add New Part
           </Button>
