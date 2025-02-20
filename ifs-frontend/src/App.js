@@ -4,7 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider } from './context/AuthContext';
 import { IFSProvider } from './context/IFSContext';
-import { Dashboard, PartsView, JournalPage, Login, NewPartPage } from './pages';
+import { Dashboard, PartsView, JournalPage, Login, NewPartPage, SystemMapPage } from './pages';
 import Navigation from './components/Navigation';
 
 const theme = createTheme({
@@ -34,6 +34,7 @@ function App() {
                 <Route path="/parts" element={<PartsView />} />
                 <Route path="/parts/new" element={<NewPartPage />} />
                 <Route path="/journal" element={<JournalPage />} />
+                <Route path="/system-map" element={<SystemMapPage />} />
               </Routes>
             </div>
           </Router>
