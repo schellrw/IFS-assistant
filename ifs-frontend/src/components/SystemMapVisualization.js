@@ -13,7 +13,8 @@ import {
   InputLabel,
   TextField,
   Box,
-  Typography
+  Typography,
+  Alert
 } from '@mui/material';
 
 const RELATIONSHIP_TYPES = [
@@ -34,6 +35,7 @@ const SystemMapVisualization = ({
 }) => {
   const svgRef = useRef(null);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [relationshipStart, setRelationshipStart] = useState(null);
   const [relationshipDialog, setRelationshipDialog] = useState({
     open: false,
     source: null,
@@ -80,6 +82,51 @@ const SystemMapVisualization = ({
       .attr("d", "M0,-5L10,0L0,5")
       .attr("fill", "#999");
 
+    // Create node groups
+    const nodes = svg.append("g")
+      .selectAll("g")
+      .data(parts)
+      .enter().append("g")
+      .call(d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended));
+
+    // Add circles for nodes
+    nodes.append("circle")
+      .attr("r", 20)
+      .attr("fill", d => getColorForRole(d.role))
+      .style("cursor", "pointer")
+      .on("click", (event, d) => {
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          if (!relationshipStart) {
+            setRelationshipStart(d);
+            // Highlight the selected node
+            d3.select(event.target).attr("stroke", "#000").attr("stroke-width", 2);
+          } else if (relationshipStart.id !== d.id) {
+            // Open dialog for creating relationship
+            setRelationshipDialog({
+              open: true,
+              source: relationshipStart,
+              target: d,
+              type: '',
+              description: ''
+            });
+            // Reset highlight
+            nodes.selectAll("circle").attr("stroke", null);
+            setRelationshipStart(null);
+          }
+        }
+      });
+
+    // Add labels
+    nodes.append("text")
+      .text(d => d.name)
+      .attr("text-anchor", "middle")
+      .attr("dy", 30)
+      .style("font-size", "12px");
+
     // Draw relationships
     const links = svg.append("g")
       .selectAll("line")
@@ -89,97 +136,17 @@ const SystemMapVisualization = ({
       .attr("stroke-opacity", 0.6)
       .attr("stroke-width", 2)
       .attr("marker-end", "url(#arrow)")
-      .on("mouseover", (event, d) => {
-        d3.select(event.target)
-          .attr("stroke-width", 4)
-          .attr("stroke", "#666");
-      })
-      .on("mouseout", (event) => {
-        d3.select(event.target)
-          .attr("stroke-width", 2)
-          .attr("stroke", "#999");
-      })
+      .style("cursor", "pointer")
       .on("click", (event, d) => {
-        // Edit relationship
         setRelationshipDialog({
           open: true,
           source: d.source,
           target: d.target,
           type: d.relationship_type,
-          description: d.description,
+          description: d.description || '',
           existing: d
         });
       });
-
-    // Create node groups
-    const nodes = svg.append("g")
-      .selectAll("g")
-      .data(parts)
-      .enter().append("g")
-      .call(d3.drag()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended))
-      .on("mouseover", (event, d) => {
-        setSelectedNode(d);
-        
-        // Show tooltip
-        const tooltip = d3.select("#node-tooltip")
-          .style("visibility", "visible")
-          .style("left", (event.pageX + 10) + "px")
-          .style("top", (event.pageY - 10) + "px");
-        
-        tooltip.select(".name").text(d.name);
-        tooltip.select(".role").text(d.role || "No role");
-        tooltip.select(".description").text(d.description || "No description");
-      })
-      .on("mouseout", () => {
-        setSelectedNode(null);
-        d3.select("#node-tooltip").style("visibility", "hidden");
-      })
-      .on("click", (event, d) => {
-        if (event.ctrlKey || event.metaKey) {
-          // Start relationship creation
-          if (!relationshipDialog.source) {
-            setRelationshipDialog(prev => ({
-              ...prev,
-              source: d
-            }));
-          } else if (relationshipDialog.source.id !== d.id) {
-            setRelationshipDialog(prev => ({
-              ...prev,
-              open: true,
-              target: d,
-              type: '',
-              description: ''
-            }));
-          }
-        }
-      });
-
-    // Add circles for nodes
-    nodes.append("circle")
-      .attr("r", 20)
-      .attr("fill", d => getColorForRole(d.role));
-
-    // Add labels
-    nodes.append("text")
-      .text(d => d.name)
-      .attr("text-anchor", "middle")
-      .attr("dy", 30)
-      .attr("fill", "#000")
-      .style("font-size", "12px");
-
-    // Add relationship labels
-    svg.append("g")
-      .selectAll("text")
-      .data(relationships)
-      .enter().append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", -5)
-      .text(d => d.relationship_type)
-      .style("font-size", "10px")
-      .style("fill", "#666");
 
     // Update positions on each tick
     simulation.on("tick", () => {
@@ -192,7 +159,6 @@ const SystemMapVisualization = ({
       nodes.attr("transform", d => `translate(${d.x},${d.y})`);
     });
 
-    // Drag functions
     function dragstarted(event) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
       event.subject.fx = event.subject.x;
@@ -210,36 +176,24 @@ const SystemMapVisualization = ({
       event.subject.fy = null;
     }
 
-    // Cleanup
     return () => {
       simulation.stop();
     };
-  }, [parts, relationships]);
-
-  // Helper function to assign colors based on role
-  const getColorForRole = (role) => {
-    const roleColors = {
-      'protector': '#ff7f0e',
-      'exile': '#1f77b4',
-      'manager': '#2ca02c',
-      'firefighter': '#d62728',
-      'self': '#9467bd',
-      'default': '#7f7f7f'
-    };
-    return roleColors[role?.toLowerCase()] || roleColors.default;
-  };
+  }, [parts, relationships, relationshipStart]);
 
   const handleRelationshipSave = () => {
     const { source, target, type, description, existing } = relationshipDialog;
     
+    if (!type) {
+      return; // Don't save without a type
+    }
+
     if (existing) {
-      // Update existing relationship
       onUpdateRelationship(existing.id, {
         relationship_type: type,
         description
       });
     } else {
-      // Create new relationship
       onAddRelationship({
         source_id: source.id,
         target_id: target.id,
@@ -259,10 +213,26 @@ const SystemMapVisualization = ({
       type: '',
       description: ''
     });
+    setRelationshipStart(null);
   };
 
   return (
     <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+      {relationshipStart && (
+        <Alert 
+          severity="info" 
+          sx={{ 
+            position: 'absolute', 
+            top: 16, 
+            left: '50%', 
+            transform: 'translateX(-50%)',
+            zIndex: 1 
+          }}
+        >
+          Select another part to create a relationship from "{relationshipStart.name}"
+        </Alert>
+      )}
+
       <svg 
         ref={svgRef} 
         style={{ width: '100%', height: '100%' }}
@@ -287,7 +257,6 @@ const SystemMapVisualization = ({
         <div className="description" style={{ fontSize: '0.9em' }}></div>
       </div>
 
-      {/* Relationship Dialog */}
       <Dialog 
         open={relationshipDialog.open} 
         onClose={handleDialogClose}
@@ -297,6 +266,11 @@ const SystemMapVisualization = ({
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
+            {!relationshipDialog.existing && (
+              <Typography gutterBottom>
+                Creating relationship from "{relationshipDialog.source?.name}" to "{relationshipDialog.target?.name}"
+              </Typography>
+            )}
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>Relationship Type</InputLabel>
               <Select
@@ -340,14 +314,18 @@ const SystemMapVisualization = ({
             </Button>
           )}
           <Button onClick={handleDialogClose}>Cancel</Button>
-          <Button onClick={handleRelationshipSave} variant="contained">
+          <Button 
+            onClick={handleRelationshipSave} 
+            variant="contained"
+            disabled={!relationshipDialog.type}
+          >
             {relationshipDialog.existing ? 'Update' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Instructions */}
-      {selectedNode === null && (
+      {!relationshipStart && (
         <Box
           sx={{
             position: 'absolute',
@@ -362,7 +340,7 @@ const SystemMapVisualization = ({
           <Typography variant="body2">
             • Click and drag nodes to move them
             <br />
-            • Ctrl/Cmd + Click two nodes to create a relationship
+            • Ctrl/Cmd + Click two parts to create a relationship
             <br />
             • Click a relationship line to edit it
           </Typography>
@@ -370,6 +348,18 @@ const SystemMapVisualization = ({
       )}
     </Box>
   );
+};
+
+const getColorForRole = (role) => {
+  const roleColors = {
+    'protector': '#ff7f0e',
+    'exile': '#1f77b4',
+    'manager': '#2ca02c',
+    'firefighter': '#d62728',
+    'self': '#9467bd',
+    'default': '#7f7f7f'
+  };
+  return roleColors[role?.toLowerCase()] || roleColors.default;
 };
 
 export default SystemMapVisualization; 
