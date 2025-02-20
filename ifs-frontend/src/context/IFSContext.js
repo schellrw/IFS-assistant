@@ -69,6 +69,41 @@ export const IFSProvider = ({ children }) => {
     }
   };
 
+  const addRelationship = async (relationshipData) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/relationships`, relationshipData);
+      await fetchSystem();
+      return response.data;
+    } catch (err) {
+      console.error('Error adding relationship:', err);
+      throw err;
+    }
+  };
+
+  const updateRelationship = async (relationshipId, updates) => {
+    try {
+      const response = await axios.put(
+        `${API_BASE_URL}/api/relationships/${relationshipId}`, 
+        updates
+      );
+      await fetchSystem();
+      return response.data;
+    } catch (err) {
+      console.error('Error updating relationship:', err);
+      throw err;
+    }
+  };
+
+  const deleteRelationship = async (relationshipId) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/api/relationships/${relationshipId}`);
+      await fetchSystem();
+    } catch (err) {
+      console.error('Error deleting relationship:', err);
+      throw err;
+    }
+  };
+
   const value = {
     system,
     loading,
@@ -76,7 +111,10 @@ export const IFSProvider = ({ children }) => {
     fetchSystem,
     addPart,
     updatePart,
-    addJournal
+    addJournal,
+    addRelationship,
+    updateRelationship,
+    deleteRelationship
   };
 
   return (

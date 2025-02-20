@@ -4,7 +4,39 @@ import { useIFS } from '../context/IFSContext';
 import { SystemMapVisualization } from '../components';
 
 const SystemMapPage = () => {
-  const { system, loading, error } = useIFS();
+  const { 
+    system, 
+    loading, 
+    error, 
+    addRelationship,
+    updateRelationship,
+    deleteRelationship
+  } = useIFS();
+
+  const handleAddRelationship = async (relationshipData) => {
+    try {
+      await addRelationship(relationshipData);
+    } catch (err) {
+      console.error('Failed to create relationship:', err);
+      // You might want to show an error message to the user
+    }
+  };
+
+  const handleUpdateRelationship = async (relationshipId, updates) => {
+    try {
+      await updateRelationship(relationshipId, updates);
+    } catch (err) {
+      console.error('Failed to update relationship:', err);
+    }
+  };
+
+  const handleDeleteRelationship = async (relationshipId) => {
+    try {
+      await deleteRelationship(relationshipId);
+    } catch (err) {
+      console.error('Failed to delete relationship:', err);
+    }
+  };
 
   if (loading) {
     return (
@@ -32,6 +64,9 @@ const SystemMapPage = () => {
           <SystemMapVisualization 
             parts={Object.values(system?.parts || {})}
             relationships={Object.values(system?.relationships || {})}
+            onAddRelationship={handleAddRelationship}
+            onUpdateRelationship={handleUpdateRelationship}
+            onDeleteRelationship={handleDeleteRelationship}
           />
         </Paper>
       </Box>

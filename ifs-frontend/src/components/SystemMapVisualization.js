@@ -1,8 +1,46 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
+import { 
+  Tooltip, 
+  Dialog, 
+  DialogTitle, 
+  DialogContent,
+  DialogActions,
+  Button,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  TextField,
+  Box,
+  Typography
+} from '@mui/material';
 
-const SystemMapVisualization = ({ parts, relationships }) => {
+const RELATIONSHIP_TYPES = [
+  'protects',
+  'triggered by',
+  'blends with',
+  'conflicts with',
+  'supports',
+  'manages'
+];
+
+const SystemMapVisualization = ({ 
+  parts, 
+  relationships,
+  onAddRelationship,
+  onUpdateRelationship,
+  onDeleteRelationship 
+}) => {
   const svgRef = useRef(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [relationshipDialog, setRelationshipDialog] = useState({
+    open: false,
+    source: null,
+    target: null,
+    type: '',
+    description: ''
+  });
 
   useEffect(() => {
     if (!parts.length) return;
@@ -50,7 +88,28 @@ const SystemMapVisualization = ({ parts, relationships }) => {
       .attr("stroke", "#999")
       .attr("stroke-opacity", 0.6)
       .attr("stroke-width", 2)
-      .attr("marker-end", "url(#arrow)");
+      .attr("marker-end", "url(#arrow)")
+      .on("mouseover", (event, d) => {
+        d3.select(event.target)
+          .attr("stroke-width", 4)
+          .attr("stroke", "#666");
+      })
+      .on("mouseout", (event) => {
+        d3.select(event.target)
+          .attr("stroke-width", 2)
+          .attr("stroke", "#999");
+      })
+      .on("click", (event, d) => {
+        // Edit relationship
+        setRelationshipDialog({
+          open: true,
+          source: d.source,
+          target: d.target,
+          type: d.relationship_type,
+          description: d.description,
+          existing: d
+        });
+      });
 
     // Create node groups
     const nodes = svg.append("g")
@@ -60,7 +119,43 @@ const SystemMapVisualization = ({ parts, relationships }) => {
       .call(d3.drag()
         .on("start", dragstarted)
         .on("drag", dragged)
-        .on("end", dragended));
+        .on("end", dragended))
+      .on("mouseover", (event, d) => {
+        setSelectedNode(d);
+        
+        // Show tooltip
+        const tooltip = d3.select("#node-tooltip")
+          .style("visibility", "visible")
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 10) + "px");
+        
+        tooltip.select(".name").text(d.name);
+        tooltip.select(".role").text(d.role || "No role");
+        tooltip.select(".description").text(d.description || "No description");
+      })
+      .on("mouseout", () => {
+        setSelectedNode(null);
+        d3.select("#node-tooltip").style("visibility", "hidden");
+      })
+      .on("click", (event, d) => {
+        if (event.ctrlKey || event.metaKey) {
+          // Start relationship creation
+          if (!relationshipDialog.source) {
+            setRelationshipDialog(prev => ({
+              ...prev,
+              source: d
+            }));
+          } else if (relationshipDialog.source.id !== d.id) {
+            setRelationshipDialog(prev => ({
+              ...prev,
+              open: true,
+              target: d,
+              type: '',
+              description: ''
+            }));
+          }
+        }
+      });
 
     // Add circles for nodes
     nodes.append("circle")
@@ -134,11 +229,146 @@ const SystemMapVisualization = ({ parts, relationships }) => {
     return roleColors[role?.toLowerCase()] || roleColors.default;
   };
 
+  const handleRelationshipSave = () => {
+    const { source, target, type, description, existing } = relationshipDialog;
+    
+    if (existing) {
+      // Update existing relationship
+      onUpdateRelationship(existing.id, {
+        relationship_type: type,
+        description
+      });
+    } else {
+      // Create new relationship
+      onAddRelationship({
+        source_id: source.id,
+        target_id: target.id,
+        relationship_type: type,
+        description
+      });
+    }
+    
+    handleDialogClose();
+  };
+
+  const handleDialogClose = () => {
+    setRelationshipDialog({
+      open: false,
+      source: null,
+      target: null,
+      type: '',
+      description: ''
+    });
+  };
+
   return (
-    <svg 
-      ref={svgRef} 
-      style={{ width: '100%', height: '100%' }}
-    />
+    <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+      <svg 
+        ref={svgRef} 
+        style={{ width: '100%', height: '100%' }}
+      />
+      
+      {/* Tooltip */}
+      <div
+        id="node-tooltip"
+        style={{
+          position: 'absolute',
+          visibility: 'hidden',
+          backgroundColor: 'white',
+          border: '1px solid #ccc',
+          borderRadius: '4px',
+          padding: '8px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          zIndex: 1000
+        }}
+      >
+        <div className="name" style={{ fontWeight: 'bold' }}></div>
+        <div className="role" style={{ color: '#666' }}></div>
+        <div className="description" style={{ fontSize: '0.9em' }}></div>
+      </div>
+
+      {/* Relationship Dialog */}
+      <Dialog 
+        open={relationshipDialog.open} 
+        onClose={handleDialogClose}
+      >
+        <DialogTitle>
+          {relationshipDialog.existing ? 'Edit Relationship' : 'Create Relationship'}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Relationship Type</InputLabel>
+              <Select
+                value={relationshipDialog.type}
+                onChange={(e) => setRelationshipDialog(prev => ({
+                  ...prev,
+                  type: e.target.value
+                }))}
+              >
+                {RELATIONSHIP_TYPES.map(type => (
+                  <MenuItem key={type} value={type}>
+                    {type}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              label="Description"
+              value={relationshipDialog.description}
+              onChange={(e) => setRelationshipDialog(prev => ({
+                ...prev,
+                description: e.target.value
+              }))}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          {relationshipDialog.existing && (
+            <Button 
+              color="error" 
+              onClick={() => {
+                onDeleteRelationship(relationshipDialog.existing.id);
+                handleDialogClose();
+              }}
+            >
+              Delete
+            </Button>
+          )}
+          <Button onClick={handleDialogClose}>Cancel</Button>
+          <Button onClick={handleRelationshipSave} variant="contained">
+            {relationshipDialog.existing ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Instructions */}
+      {selectedNode === null && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 16,
+            left: 16,
+            backgroundColor: 'rgba(255,255,255,0.9)',
+            padding: 2,
+            borderRadius: 1,
+            boxShadow: 1
+          }}
+        >
+          <Typography variant="body2">
+            • Click and drag nodes to move them
+            <br />
+            • Ctrl/Cmd + Click two nodes to create a relationship
+            <br />
+            • Click a relationship line to edit it
+          </Typography>
+        </Box>
+      )}
+    </Box>
   );
 };
 
