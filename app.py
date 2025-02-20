@@ -1,9 +1,11 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from ifs import IFSSystem, Part, Relationship, Journal
+import datetime
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# During development, allow all origins
+CORS(app)  # We'll make this more restrictive when deploying
 
 # Initialize a demo system
 demo_system = IFSSystem(user_id="demo_user")
@@ -37,6 +39,14 @@ def handle_part(part_id):
     if request.method == 'PUT':
         success = demo_system.update_part(part_id, request.json)
         return jsonify({"success": success})
+
+@app.route('/api/test', methods=['GET'])
+def test_connection():
+    return jsonify({
+        "status": "success",
+        "message": "Backend is connected!",
+        "timestamp": datetime.datetime.now().isoformat()
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000) 

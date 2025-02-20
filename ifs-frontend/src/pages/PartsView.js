@@ -1,21 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { 
   Container, Typography, Grid, Card, CardContent, 
-  CardActions, Button, Box 
+  CardActions, Button, Box, CircularProgress, Alert 
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
 
 const PartsView = () => {
-  const { system } = useIFS();
+  const { system, loading, error } = useIFS();
   const navigate = useNavigate();
-  const [parts, setParts] = useState([]);
 
-  useEffect(() => {
-    if (system?.parts) {
-      setParts(Object.values(system.parts));
-    }
-  }, [system]);
+  if (loading) {
+    return (
+      <Container sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+        <CircularProgress />
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container sx={{ mt: 4 }}>
+        <Alert severity="error">{error}</Alert>
+      </Container>
+    );
+  }
+
+  const parts = system ? Object.values(system.parts) : [];
 
   return (
     <Container maxWidth="lg">

@@ -1,10 +1,75 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useAuth } from './AuthContext';
+import axios from 'axios';
 
 const IFSContext = createContext();
 
-export const useIFS = () => useContext(IFSContext);
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+export const useIFS = () => {
+  const context = useContext(IFSContext);
+  if (!context) {
+    throw new Error('useIFS must be used within an IFSProvider');
+  }
+  return context;
+};
 
 export const IFSProvider = ({ children }) => {
-    // ... IFSProvider implementation from ifs-frontend.js ...
+  const [system, setSystem] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchSystem();
+  }, []);
+
+  const fetchSystem = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_BASE_URL}/api/system`);
+      setSystem(response.data);
+      setError(null);
+    } catch (err) {
+      setError('Failed to fetch system data');
+      console.error('Error fetching system:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addPart = async (partData) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/parts`, partData);
+      await fetchSystem(); // Refresh system data
+      return response.data;
+    } catch (err) {
+      console.error('Error adding part:', err);
+      throw err;
+    }
+  };
+
+  const updatePart = async (partId, updates) => {
+    try {
+      const response = await axios.put(`${API_BASE_URL}/api/parts/${partId}`, updates);
+      await fetchSystem(); // Refresh system data
+      return response.data;
+    } catch (err) {
+      console.error('Error updating part:', err);
+      throw err;
+    }
+  };
+
+  const value = {
+    system,
+    loading,
+    error,
+    fetchSystem,
+    addPart,
+    updatePart
+  };
+
+  return (
+    <IFSContext.Provider value={value}>
+      {children}
+    </IFSContext.Provider>
+  );
 }; 
