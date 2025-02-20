@@ -59,5 +59,50 @@ def add_journal():
     journal_id = demo_system.add_journal(journal)
     return jsonify({"id": journal_id, "journal": journal.to_dict()})
 
+@app.route('/api/relationships', methods=['POST'])
+def add_relationship():
+    data = request.json
+    relationship = Relationship(
+        source_id=data['source_id'],
+        target_id=data['target_id'],
+        relationship_type=data['relationship_type'],
+        description=data.get('description', '')
+    )
+    
+    # Validate that both parts exist
+    if relationship.source_id not in demo_system.parts or relationship.target_id not in demo_system.parts:
+        return jsonify({
+            "error": "Both source and target parts must exist"
+        }), 400
+    
+    relationship_id = demo_system.add_relationship(relationship)
+    return jsonify({
+        "id": relationship_id,
+        "relationship": relationship.to_dict()
+    })
+
+@app.route('/api/relationships/<relationship_id>', methods=['PUT', 'DELETE'])
+def handle_relationship(relationship_id):
+    if relationship_id not in demo_system.relationships:
+        return jsonify({"error": "Relationship not found"}), 404
+    
+    if request.method == 'PUT':
+        data = request.json
+        relationship = demo_system.relationships[relationship_id]
+        
+        if 'relationship_type' in data:
+            relationship.relationship_type = data['relationship_type']
+        if 'description' in data:
+            relationship.description = data['description']
+        
+        return jsonify({
+            "success": True,
+            "relationship": relationship.to_dict()
+        })
+    
+    if request.method == 'DELETE':
+        del demo_system.relationships[relationship_id]
+        return jsonify({"success": True})
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000) 
