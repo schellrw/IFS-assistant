@@ -47,25 +47,44 @@ const SystemMapVisualization = ({
   useEffect(() => {
     if (!parts.length) return;
 
+    // Format relationships for D3
+    const formattedRelationships = relationships.map(rel => ({
+      source: parts.find(p => p.id === rel.source_id),
+      target: parts.find(p => p.id === rel.target_id),
+      id: rel.id,
+      relationship_type: rel.relationship_type,
+      description: rel.description
+    })).filter(rel => rel.source && rel.target); // Ensure both source and target exist
+
     // Clear previous visualization
     d3.select(svgRef.current).selectAll("*").remove();
 
     // Setup
     const width = svgRef.current.clientWidth;
     const height = svgRef.current.clientHeight;
+    const padding = 40; // Padding from edges
 
     const svg = d3.select(svgRef.current)
       .attr("width", width)
       .attr("height", height);
 
-    // Create force simulation
+    // Create force simulation with formatted relationships
     const simulation = d3.forceSimulation(parts)
-      .force("link", d3.forceLink(relationships)
+      .force("link", d3.forceLink(formattedRelationships)
         .id(d => d.id)
-        .distance(100))
-      .force("charge", d3.forceManyBody().strength(-300))
+        .distance(150))
+      .force("charge", d3.forceManyBody()
+        .strength(-500)  // Stronger repulsion
+        .distanceMax(width * 0.5)) // Limit the repulsion range
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collision", d3.forceCollide().radius(50));
+      .force("collision", d3.forceCollide().radius(60)) // Increased collision radius
+      .force("bounds", () => {
+        // Keep nodes within bounds
+        for (let node of parts) {
+          node.x = Math.max(padding, Math.min(width - padding, node.x || width/2));
+          node.y = Math.max(padding, Math.min(height - padding, node.y || height/2));
+        }
+      });
 
     // Create arrow marker for relationship lines
     svg.append("defs").selectAll("marker")
@@ -82,8 +101,27 @@ const SystemMapVisualization = ({
       .attr("d", "M0,-5L10,0L0,5")
       .attr("fill", "#999");
 
+    // Add zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 2]) // Limit zoom scale
+      .on("zoom", (event) => {
+        svg.selectAll("g").attr("transform", event.transform);
+      });
+
+    svg.call(zoom);
+    
+    // Add a background rect to catch zoom events
+    svg.append("rect")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "none")
+      .attr("pointer-events", "all");
+
+    // Create a container group for all elements
+    const container = svg.append("g");
+
     // Create node groups
-    const nodes = svg.append("g")
+    const nodes = container.append("g")
       .selectAll("g")
       .data(parts)
       .enter().append("g")
@@ -128,9 +166,9 @@ const SystemMapVisualization = ({
       .style("font-size", "12px");
 
     // Draw relationships
-    const links = svg.append("g")
+    const links = container.append("g")
       .selectAll("line")
-      .data(relationships)
+      .data(formattedRelationships)
       .enter().append("line")
       .attr("stroke", "#999")
       .attr("stroke-opacity", 0.6)
@@ -144,19 +182,43 @@ const SystemMapVisualization = ({
           target: d.target,
           type: d.relationship_type,
           description: d.description || '',
-          existing: d
+          existing: {
+            id: d.id,
+            relationship_type: d.relationship_type,
+            description: d.description
+          }
         });
       });
 
+    // Add relationship labels
+    const linkLabels = container.append("g")
+      .selectAll("text")
+      .data(formattedRelationships)
+      .enter().append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", -5)
+      .text(d => d.relationship_type)
+      .style("font-size", "10px")
+      .style("fill", "#666")
+      .style("pointer-events", "none"); // Prevent labels from interfering with clicks
+
     // Update positions on each tick
     simulation.on("tick", () => {
+      nodes.attr("transform", d => {
+        d.x = Math.max(padding, Math.min(width - padding, d.x));
+        d.y = Math.max(padding, Math.min(height - padding, d.y));
+        return `translate(${d.x},${d.y})`;
+      });
+
       links
         .attr("x1", d => d.source.x)
         .attr("y1", d => d.source.y)
         .attr("x2", d => d.target.x)
         .attr("y2", d => d.target.y);
 
-      nodes.attr("transform", d => `translate(${d.x},${d.y})`);
+      linkLabels
+        .attr("x", d => (d.source.x + d.target.x) / 2)
+        .attr("y", d => (d.source.y + d.target.y) / 2);
     });
 
     function dragstarted(event) {
@@ -176,33 +238,47 @@ const SystemMapVisualization = ({
       event.subject.fy = null;
     }
 
+    // Add double-click to reset zoom
+    svg.on("dblclick.zoom", () => {
+      svg.transition()
+        .duration(750)
+        .call(zoom.transform, d3.zoomIdentity);
+    });
+
     return () => {
       simulation.stop();
     };
   }, [parts, relationships, relationshipStart]);
 
-  const handleRelationshipSave = () => {
+  const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
     
     if (!type) {
       return; // Don't save without a type
     }
 
-    if (existing) {
-      onUpdateRelationship(existing.id, {
-        relationship_type: type,
-        description
-      });
-    } else {
-      onAddRelationship({
-        source_id: source.id,
-        target_id: target.id,
-        relationship_type: type,
-        description
-      });
+    try {
+      if (existing) {
+        await onUpdateRelationship(existing.id, {
+          relationship_type: type,
+          description
+        });
+      } else {
+        await onAddRelationship({
+          source_id: source.id,
+          target_id: target.id,
+          relationship_type: type,
+          description
+        });
+      }
+      
+      // Force a re-render of the visualization
+      // This will be handled by the parent component updating the relationships prop
+      handleDialogClose();
+    } catch (error) {
+      console.error('Failed to save relationship:', error);
+      // Optionally show an error message to the user
     }
-    
-    handleDialogClose();
   };
 
   const handleDialogClose = () => {
