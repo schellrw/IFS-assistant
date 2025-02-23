@@ -62,24 +62,32 @@ def add_journal():
 @app.route('/api/relationships', methods=['POST'])
 def add_relationship():
     data = request.json
-    relationship = Relationship(
-        source_id=data['source_id'],
-        target_id=data['target_id'],
-        relationship_type=data['relationship_type'],
-        description=data.get('description', '')
-    )
+    print("Received relationship data:", data)  # Debug print
     
-    # Validate that both parts exist
-    if relationship.source_id not in demo_system.parts or relationship.target_id not in demo_system.parts:
+    try:
+        relationship = Relationship(
+            source_id=data['source_id'],
+            target_id=data['target_id'],
+            relationship_type=data['relationship_type'],
+            description=data.get('description', '')
+        )
+        
+        # Validate that both parts exist
+        if relationship.source_id not in demo_system.parts:
+            return jsonify({"error": f"Source part {relationship.source_id} not found"}), 400
+        if relationship.target_id not in demo_system.parts:
+            return jsonify({"error": f"Target part {relationship.target_id} not found"}), 400
+        
+        relationship_id = demo_system.add_relationship(relationship)
+        print("Created relationship with ID:", relationship_id)  # Debug print
+        
         return jsonify({
-            "error": "Both source and target parts must exist"
-        }), 400
-    
-    relationship_id = demo_system.add_relationship(relationship)
-    return jsonify({
-        "id": relationship_id,
-        "relationship": relationship.to_dict()
-    })
+            "id": relationship_id,
+            "relationship": relationship.to_dict()
+        })
+    except Exception as e:
+        print("Error creating relationship:", str(e))  # Debug print
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/relationships/<relationship_id>', methods=['PUT', 'DELETE'])
 def handle_relationship(relationship_id):

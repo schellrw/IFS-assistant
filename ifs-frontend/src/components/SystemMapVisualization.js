@@ -135,10 +135,24 @@ const SystemMapVisualization = ({
       .on("click", (event, d) => {
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
+          event.stopPropagation(); // Prevent event bubbling
+          
           if (!relationshipStart) {
             setRelationshipStart(d);
             // Highlight the selected node
-            d3.select(event.target).attr("stroke", "#000").attr("stroke-width", 2);
+            d3.select(event.target)
+              .attr("stroke", "#000")
+              .attr("stroke-width", 2)
+              .attr("stroke-opacity", 1);
+            
+            // Optional: Add visual feedback
+            d3.select(event.target)
+              .transition()
+              .duration(200)
+              .attr("r", 25)
+              .transition()
+              .duration(200)
+              .attr("r", 20);
           } else if (relationshipStart.id !== d.id) {
             // Open dialog for creating relationship
             setRelationshipDialog({
@@ -148,10 +162,47 @@ const SystemMapVisualization = ({
               type: '',
               description: ''
             });
-            // Reset highlight
-            nodes.selectAll("circle").attr("stroke", null);
+            
+            // Reset highlights
+            nodes.selectAll("circle")
+              .attr("stroke", null)
+              .attr("stroke-width", null)
+              .attr("stroke-opacity", null);
+              
             setRelationshipStart(null);
           }
+        }
+      })
+      .on("mouseover", (event, d) => {
+        // Add hover effect
+        d3.select(event.target)
+          .transition()
+          .duration(200)
+          .attr("stroke", "#666")
+          .attr("stroke-width", 1)
+          .attr("stroke-opacity", 0.5);
+      })
+      .on("mouseout", (event, d) => {
+        // Remove hover effect if not selected
+        if (d !== relationshipStart) {
+          d3.select(event.target)
+            .transition()
+            .duration(200)
+            .attr("stroke", null)
+            .attr("stroke-width", null)
+            .attr("stroke-opacity", null);
+        }
+      });
+
+    // Add a click handler to the background to cancel relationship creation
+    svg.select("rect")
+      .on("click", () => {
+        if (relationshipStart) {
+          nodes.selectAll("circle")
+            .attr("stroke", null)
+            .attr("stroke-width", null)
+            .attr("stroke-opacity", null);
+          setRelationshipStart(null);
         }
       });
 
@@ -259,8 +310,9 @@ const SystemMapVisualization = ({
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
     
-    if (!type) {
-      return; // Don't save without a type
+    if (!type || !source || !target) {
+      console.log('Missing required fields:', { source, target, type });
+      return;
     }
 
     try {
@@ -270,20 +322,20 @@ const SystemMapVisualization = ({
           description
         });
       } else {
-        await onAddRelationship({
+        const relationshipData = {
           source_id: source.id,
           target_id: target.id,
           relationship_type: type,
           description
-        });
+        };
+        console.log('Creating new relationship:', relationshipData);
+        await onAddRelationship(relationshipData);
       }
       
-      // Force a re-render of the visualization
-      // This will be handled by the parent component updating the relationships prop
       handleDialogClose();
     } catch (error) {
       console.error('Failed to save relationship:', error);
-      // Optionally show an error message to the user
+      alert('Failed to create relationship. Check console for details.');
     }
   };
 

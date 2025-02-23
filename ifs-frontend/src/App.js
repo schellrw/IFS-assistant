@@ -6,6 +6,7 @@ import { AuthProvider } from './context/AuthContext';
 import { IFSProvider } from './context/IFSContext';
 import { Dashboard, PartsView, JournalPage, Login, NewPartPage, SystemMapPage } from './pages';
 import Navigation from './components/Navigation';
+import { ErrorBoundary } from 'react-error-boundary';
 
 const theme = createTheme({
   palette: {
@@ -18,6 +19,15 @@ const theme = createTheme({
     },
   },
 });
+
+function ErrorFallback({error}) {
+  return (
+    <div role="alert">
+      <p>Something went wrong:</p>
+      <pre>{error.message}</pre>
+    </div>
+  )
+}
 
 function App() {
   return (
@@ -34,7 +44,14 @@ function App() {
                 <Route path="/parts" element={<PartsView />} />
                 <Route path="/parts/new" element={<NewPartPage />} />
                 <Route path="/journal" element={<JournalPage />} />
-                <Route path="/system-map" element={<SystemMapPage />} />
+                <Route 
+                  path="/system-map" 
+                  element={
+                    <ErrorBoundary FallbackComponent={ErrorFallback}>
+                      <SystemMapPage />
+                    </ErrorBoundary>
+                  } 
+                />
               </Routes>
             </div>
           </Router>

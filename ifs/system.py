@@ -39,11 +39,24 @@ class IFSSystem:
     
     def add_relationship(self, relationship: Relationship) -> str:
         """Add a new relationship between parts and return its ID"""
-        if relationship.source_id not in self.parts or relationship.target_id not in self.parts:
-            raise ValueError("Both source and target parts must exist in the system")
-        
-        self.relationships[relationship.id] = relationship
-        return relationship.id
+        try:
+            if relationship.source_id not in self.parts:
+                raise ValueError(f"Source part {relationship.source_id} not found")
+            if relationship.target_id not in self.parts:
+                raise ValueError(f"Target part {relationship.target_id} not found")
+            
+            # Check if relationship already exists
+            for existing_rel in self.relationships.values():
+                if (existing_rel.source_id == relationship.source_id and 
+                    existing_rel.target_id == relationship.target_id and
+                    existing_rel.relationship_type == relationship.relationship_type):
+                    raise ValueError("Similar relationship already exists")
+            
+            self.relationships[relationship.id] = relationship
+            return relationship.id
+        except Exception as e:
+            print(f"Error in add_relationship: {str(e)}")
+            raise
     
     def add_journal(self, journal: Journal) -> str:
         """Add a new journal entry and return its ID"""
