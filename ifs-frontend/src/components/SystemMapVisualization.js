@@ -68,23 +68,39 @@ const SystemMapVisualization = ({
       .attr("width", width)
       .attr("height", height);
 
+    // Create a container group for all elements
+    const container = svg.append("g");
+
+    // Add zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([0.2, 4]) // Allow more zoom range
+      .on("zoom", (event) => {
+        container.attr("transform", event.transform);
+        // Update simulation when zooming
+        simulation.alpha(0.3).restart();
+      });
+
+    // Add a background rect to catch zoom events
+    svg.append("rect")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "none")
+      .attr("pointer-events", "all");
+
+    svg.call(zoom);
+
     // Create force simulation with formatted relationships
     const simulation = d3.forceSimulation(parts)
       .force("link", d3.forceLink(formattedRelationships)
         .id(d => d.id)
         .distance(150))
       .force("charge", d3.forceManyBody()
-        .strength(-500)  // Stronger repulsion
-        .distanceMax(width * 0.5)) // Limit the repulsion range
+        .strength(-1000)  // Increased repulsion
+        .distanceMax(width)) // Increased range
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collision", d3.forceCollide().radius(60)) // Increased collision radius
-      .force("bounds", () => {
-        // Keep nodes within bounds
-        for (let node of parts) {
-          node.x = Math.max(padding, Math.min(width - padding, node.x || width/2));
-          node.y = Math.max(padding, Math.min(height - padding, node.y || height/2));
-        }
-      });
+      .force("collision", d3.forceCollide().radius(60))
+      .force("x", d3.forceX(width / 2).strength(0.1))
+      .force("y", d3.forceY(height / 2).strength(0.1));
 
     // Create arrow marker for relationship lines
     svg.append("defs").selectAll("marker")
@@ -100,25 +116,6 @@ const SystemMapVisualization = ({
       .append("path")
       .attr("d", "M0,-5L10,0L0,5")
       .attr("fill", "#999");
-
-    // Add zoom behavior
-    const zoom = d3.zoom()
-      .scaleExtent([0.5, 2]) // Limit zoom scale
-      .on("zoom", (event) => {
-        svg.selectAll("g").attr("transform", event.transform);
-      });
-
-    svg.call(zoom);
-    
-    // Add a background rect to catch zoom events
-    svg.append("rect")
-      .attr("width", width)
-      .attr("height", height)
-      .attr("fill", "none")
-      .attr("pointer-events", "all");
-
-    // Create a container group for all elements
-    const container = svg.append("g");
 
     // Create node groups
     const nodes = container.append("g")
@@ -204,10 +201,12 @@ const SystemMapVisualization = ({
 
     // Update positions on each tick
     simulation.on("tick", () => {
+      const k = d3.zoomTransform(svg.node()).k;
+      
       nodes.attr("transform", d => {
-        d.x = Math.max(padding, Math.min(width - padding, d.x));
-        d.y = Math.max(padding, Math.min(height - padding, d.y));
-        return `translate(${d.x},${d.y})`;
+        const x = Math.max(padding/k, Math.min(width - padding/k, d.x));
+        const y = Math.max(padding/k, Math.min(height - padding/k, d.y));
+        return `translate(${x},${y})`;
       });
 
       links
@@ -221,10 +220,11 @@ const SystemMapVisualization = ({
         .attr("y", d => (d.source.y + d.target.y) / 2);
     });
 
+    // Update drag behavior to work with zoom
     function dragstarted(event) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
-      event.subject.fx = event.subject.x;
-      event.subject.fy = event.subject.y;
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
     }
 
     function dragged(event) {
@@ -236,13 +236,19 @@ const SystemMapVisualization = ({
       if (!event.active) simulation.alphaTarget(0);
       event.subject.fx = null;
       event.subject.fy = null;
+      simulation.alpha(0.3).restart(); // Restart simulation after drag
     }
 
-    // Add double-click to reset zoom
+    // Add double-click to reset zoom and center
     svg.on("dblclick.zoom", () => {
       svg.transition()
         .duration(750)
         .call(zoom.transform, d3.zoomIdentity);
+      
+      // Recenter nodes
+      simulation.force("center", d3.forceCenter(width / 2, height / 2))
+        .alpha(0.3)
+        .restart();
     });
 
     return () => {
