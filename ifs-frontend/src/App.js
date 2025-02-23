@@ -4,7 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider } from './context/AuthContext';
 import { IFSProvider } from './context/IFSContext';
-import { Dashboard, PartsView, JournalPage, Login, NewPartPage, SystemMapPage } from './pages';
+import { Dashboard, PartsView, JournalPage, Login, NewPartPage, SystemMapPage, PartDetailsPage } from './pages';
 import Navigation from './components/Navigation';
 import { ErrorBoundary } from 'react-error-boundary';
 
@@ -52,6 +52,7 @@ function App() {
                     </ErrorBoundary>
                   } 
                 />
+                <Route path="/parts/:partId" element={<PartDetailsPage />} />
               </Routes>
             </div>
           </Router>

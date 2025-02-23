@@ -106,6 +106,16 @@ export const IFSProvider = ({ children }) => {
     }
   };
 
+  const deletePart = async (partId) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/api/parts/${partId}`);
+      await fetchSystem(); // Refresh system data
+    } catch (err) {
+      console.error('Error deleting part:', err);
+      throw err;
+    }
+  };
+
   const value = {
     system,
     loading,
@@ -116,7 +126,8 @@ export const IFSProvider = ({ children }) => {
     addJournal,
     addRelationship,
     updateRelationship,
-    deleteRelationship
+    deleteRelationship,
+    deletePart
   };
 
   return (
