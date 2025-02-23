@@ -15,10 +15,12 @@ const SystemMapPage = () => {
 
   const handleAddRelationship = async (relationshipData) => {
     try {
-      await addRelationship(relationshipData);
+      console.log('SystemMapPage: Creating relationship:', relationshipData);
+      const result = await addRelationship(relationshipData);
+      console.log('SystemMapPage: Relationship created:', result);
     } catch (err) {
-      console.error('Failed to create relationship:', err);
-      // You might want to show an error message to the user
+      console.error('SystemMapPage: Failed to create relationship:', err);
+      alert(`Failed to create relationship: ${err.message}`);
     }
   };
 

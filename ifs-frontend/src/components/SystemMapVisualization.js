@@ -312,11 +312,13 @@ const SystemMapVisualization = ({
     
     if (!type || !source || !target) {
       console.log('Missing required fields:', { source, target, type });
+      alert('Please select a relationship type');
       return;
     }
 
     try {
       if (existing) {
+        console.log('Updating existing relationship:', existing);
         await onUpdateRelationship(existing.id, {
           relationship_type: type,
           description
@@ -335,7 +337,7 @@ const SystemMapVisualization = ({
       handleDialogClose();
     } catch (error) {
       console.error('Failed to save relationship:', error);
-      alert('Failed to create relationship. Check console for details.');
+      alert(`Failed to create relationship: ${error.message}`);
     }
   };
 
@@ -413,6 +415,7 @@ const SystemMapVisualization = ({
                   ...prev,
                   type: e.target.value
                 }))}
+                required
               >
                 {RELATIONSHIP_TYPES.map(type => (
                   <MenuItem key={type} value={type}>
@@ -426,7 +429,7 @@ const SystemMapVisualization = ({
               fullWidth
               multiline
               rows={3}
-              label="Description"
+              label="Description (optional)"
               value={relationshipDialog.description}
               onChange={(e) => setRelationshipDialog(prev => ({
                 ...prev,
@@ -436,17 +439,6 @@ const SystemMapVisualization = ({
           </Box>
         </DialogContent>
         <DialogActions>
-          {relationshipDialog.existing && (
-            <Button 
-              color="error" 
-              onClick={() => {
-                onDeleteRelationship(relationshipDialog.existing.id);
-                handleDialogClose();
-              }}
-            >
-              Delete
-            </Button>
-          )}
           <Button onClick={handleDialogClose}>Cancel</Button>
           <Button 
             onClick={handleRelationshipSave} 

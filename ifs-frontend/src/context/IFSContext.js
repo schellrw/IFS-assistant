@@ -71,12 +71,14 @@ export const IFSProvider = ({ children }) => {
 
   const addRelationship = async (relationshipData) => {
     try {
+      console.log('IFSContext: Sending relationship data:', relationshipData);
       const response = await axios.post(`${API_BASE_URL}/api/relationships`, relationshipData);
-      await fetchSystem();
+      console.log('IFSContext: Server response:', response.data);
+      await fetchSystem(); // Refresh system data
       return response.data;
     } catch (err) {
-      console.error('Error adding relationship:', err);
-      throw err;
+      console.error('IFSContext: Error adding relationship:', err.response?.data || err);
+      throw new Error(err.response?.data?.error || err.message);
     }
   };
 
