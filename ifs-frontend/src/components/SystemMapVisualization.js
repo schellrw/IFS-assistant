@@ -73,19 +73,14 @@ const SystemMapVisualization = ({
 
     // Add zoom behavior
     const zoom = d3.zoom()
-      .scaleExtent([0.2, 4]) // Allow more zoom range
+      .scaleExtent([0.2, 4])
       .on("zoom", (event) => {
         container.attr("transform", event.transform);
-        // Update simulation when zooming
-        simulation.alpha(0.3).restart();
+      })
+      .filter(event => {
+        // Allow zoom only on wheel or dblclick events
+        return event.type === 'wheel' || event.type === 'dblclick';
       });
-
-    // Add a background rect to catch zoom events
-    svg.append("rect")
-      .attr("width", width)
-      .attr("height", height)
-      .attr("fill", "none")
-      .attr("pointer-events", "all");
 
     svg.call(zoom);
 
@@ -118,35 +113,50 @@ const SystemMapVisualization = ({
       .attr("fill", "#999");
 
     // Create node groups
-    const nodes = container.append("g")
-      .selectAll("g")
+    const nodeGroups = container.append("g")
+      .attr("class", "nodes");
+
+    const nodes = nodeGroups
+      .selectAll("g.node")
       .data(parts)
-      .enter().append("g")
+      .enter()
+      .append("g")
+      .attr("class", "node")
       .call(d3.drag()
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended));
 
     // Add circles for nodes
-    nodes.append("circle")
+    const circles = nodes
+      .append("circle")
       .attr("r", 20)
       .attr("fill", d => getColorForRole(d.role))
+      .style("cursor", "pointer");
+
+    // Add separate transparent circle for better click handling
+    nodes.append("circle")
+      .attr("r", 25)
+      .attr("fill", "transparent")
       .style("cursor", "pointer")
-      .on("click", (event, d) => {
+      .on("mousedown", (event, d) => {
+        console.log('Node clicked:', d.name);
+        console.log('Ctrl/Cmd key pressed:', event.ctrlKey || event.metaKey);
+        
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
-          event.stopPropagation(); // Prevent event bubbling
+          event.stopPropagation();
           
           if (!relationshipStart) {
+            console.log('Setting start node:', d.name);
             setRelationshipStart(d);
+            
             // Highlight the selected node
-            d3.select(event.target)
+            const circle = d3.select(event.target.parentNode).select("circle");
+            circle
               .attr("stroke", "#000")
               .attr("stroke-width", 2)
-              .attr("stroke-opacity", 1);
-            
-            // Optional: Add visual feedback
-            d3.select(event.target)
+              .attr("stroke-opacity", 1)
               .transition()
               .duration(200)
               .attr("r", 25)
@@ -154,7 +164,7 @@ const SystemMapVisualization = ({
               .duration(200)
               .attr("r", 20);
           } else if (relationshipStart.id !== d.id) {
-            // Open dialog for creating relationship
+            console.log('Setting end node:', d.name);
             setRelationshipDialog({
               open: true,
               source: relationshipStart,
@@ -163,46 +173,15 @@ const SystemMapVisualization = ({
               description: ''
             });
             
-            // Reset highlights
-            nodes.selectAll("circle")
+            // Reset all circle highlights
+            circles
               .attr("stroke", null)
               .attr("stroke-width", null)
-              .attr("stroke-opacity", null);
-              
+              .attr("stroke-opacity", null)
+              .attr("r", 20);
+            
             setRelationshipStart(null);
           }
-        }
-      })
-      .on("mouseover", (event, d) => {
-        // Add hover effect
-        d3.select(event.target)
-          .transition()
-          .duration(200)
-          .attr("stroke", "#666")
-          .attr("stroke-width", 1)
-          .attr("stroke-opacity", 0.5);
-      })
-      .on("mouseout", (event, d) => {
-        // Remove hover effect if not selected
-        if (d !== relationshipStart) {
-          d3.select(event.target)
-            .transition()
-            .duration(200)
-            .attr("stroke", null)
-            .attr("stroke-width", null)
-            .attr("stroke-opacity", null);
-        }
-      });
-
-    // Add a click handler to the background to cancel relationship creation
-    svg.select("rect")
-      .on("click", () => {
-        if (relationshipStart) {
-          nodes.selectAll("circle")
-            .attr("stroke", null)
-            .attr("stroke-width", null)
-            .attr("stroke-opacity", null);
-          setRelationshipStart(null);
         }
       });
 
@@ -211,7 +190,8 @@ const SystemMapVisualization = ({
       .text(d => d.name)
       .attr("text-anchor", "middle")
       .attr("dy", 30)
-      .style("font-size", "12px");
+      .style("font-size", "12px")
+      .style("pointer-events", "none");
 
     // Draw relationships
     const links = container.append("g")
@@ -252,7 +232,7 @@ const SystemMapVisualization = ({
 
     // Update positions on each tick
     simulation.on("tick", () => {
-      const k = d3.zoomTransform(svg.node()).k;
+      const k = d3.zoomTransform(svg.node()).k || 1;
       
       nodes.attr("transform", d => {
         const x = Math.max(padding/k, Math.min(width - padding/k, d.x));
@@ -310,8 +290,10 @@ const SystemMapVisualization = ({
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
     
+    console.log('Saving relationship:', { source, target, type, description });  // Debug log
+    
     if (!type || !source || !target) {
-      console.log('Missing required fields:', { source, target, type });
+      console.log('Missing required fields:', { source, target, type });  // Debug log
       alert('Please select a relationship type');
       return;
     }
@@ -330,7 +312,7 @@ const SystemMapVisualization = ({
           relationship_type: type,
           description
         };
-        console.log('Creating new relationship:', relationshipData);
+        console.log('Creating new relationship:', relationshipData);  // Debug log
         await onAddRelationship(relationshipData);
       }
       
