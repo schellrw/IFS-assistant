@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { 
-  Tooltip, 
   Dialog, 
   DialogTitle, 
   DialogContent,
@@ -16,6 +15,7 @@ import {
   Typography,
   Alert
 } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 const RELATIONSHIP_TYPES = [
   'protects',
@@ -34,7 +34,6 @@ const SystemMapVisualization = ({
   onDeleteRelationship 
 }) => {
   const svgRef = useRef(null);
-  const [selectedNode, setSelectedNode] = useState(null);
   const [relationshipStart, setRelationshipStart] = useState(null);
   const [relationshipDialog, setRelationshipDialog] = useState({
     open: false,
@@ -384,11 +383,13 @@ const SystemMapVisualization = ({
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
-            {!relationshipDialog.existing && (
-              <Typography gutterBottom>
-                Creating relationship from "{relationshipDialog.source?.name}" to "{relationshipDialog.target?.name}"
-              </Typography>
-            )}
+            <Typography gutterBottom>
+              {relationshipDialog.existing ? (
+                `Relationship from "${relationshipDialog.source?.name}" to "${relationshipDialog.target?.name}"`
+              ) : (
+                `Creating relationship from "${relationshipDialog.source?.name}" to "${relationshipDialog.target?.name}"`
+              )}
+            </Typography>
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>Relationship Type</InputLabel>
               <Select
@@ -420,15 +421,40 @@ const SystemMapVisualization = ({
             />
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDialogClose}>Cancel</Button>
-          <Button 
-            onClick={handleRelationshipSave} 
-            variant="contained"
-            disabled={!relationshipDialog.type}
-          >
-            {relationshipDialog.existing ? 'Update' : 'Create'}
-          </Button>
+        <DialogActions sx={{ justifyContent: 'space-between', px: 3, pb: 2 }}>
+          <Box>
+            {relationshipDialog.existing && (
+              <Button 
+                color="error" 
+                onClick={async () => {
+                  if (window.confirm('Are you sure you want to delete this relationship?')) {
+                    try {
+                      await onDeleteRelationship(relationshipDialog.existing.id);
+                      handleDialogClose();
+                    } catch (error) {
+                      console.error('Failed to delete relationship:', error);
+                      alert('Failed to delete relationship');
+                    }
+                  }
+                }}
+                startIcon={<DeleteIcon />}
+              >
+                Delete
+              </Button>
+            )}
+          </Box>
+          <Box>
+            <Button onClick={handleDialogClose} sx={{ mr: 1 }}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRelationshipSave} 
+              variant="contained"
+              disabled={!relationshipDialog.type}
+            >
+              {relationshipDialog.existing ? 'Update' : 'Create'}
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
