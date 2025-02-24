@@ -4,8 +4,17 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider } from './context/AuthContext';
 import { IFSProvider } from './context/IFSContext';
-import { Dashboard, PartsView, JournalPage, Login, NewPartPage, SystemMapPage, PartDetailsPage } from './pages';
-import Navigation from './components/Navigation';
+import { 
+  Dashboard, 
+  PartsView, 
+  JournalPage, 
+  Login, 
+  Register,
+  NewPartPage, 
+  SystemMapPage, 
+  PartDetailsPage 
+} from './pages';
+import { Navigation, ProtectedRoute } from './components';
 import { ErrorBoundary } from 'react-error-boundary';
 
 const theme = createTheme({
@@ -34,29 +43,62 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
-        <IFSProvider>
-          <Router>
-            <div className="App">
-              <Navigation />
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/parts" element={<PartsView />} />
-                <Route path="/parts/new" element={<NewPartPage />} />
-                <Route path="/journal" element={<JournalPage />} />
-                <Route 
-                  path="/system-map" 
-                  element={
+        <Router>
+          <div className="App">
+            <Navigation />
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              
+              {/* Protected routes */}
+              <Route path="/" element={
+                <ProtectedRoute>
+                  <IFSProvider>
+                    <Dashboard />
+                  </IFSProvider>
+                </ProtectedRoute>
+              } />
+              <Route path="/parts" element={
+                <ProtectedRoute>
+                  <IFSProvider>
+                    <PartsView />
+                  </IFSProvider>
+                </ProtectedRoute>
+              } />
+              <Route path="/parts/new" element={
+                <ProtectedRoute>
+                  <IFSProvider>
+                    <NewPartPage />
+                  </IFSProvider>
+                </ProtectedRoute>
+              } />
+              <Route path="/journal" element={
+                <ProtectedRoute>
+                  <IFSProvider>
+                    <JournalPage />
+                  </IFSProvider>
+                </ProtectedRoute>
+              } />
+              <Route path="/system-map" element={
+                <ProtectedRoute>
+                  <IFSProvider>
                     <ErrorBoundary FallbackComponent={ErrorFallback}>
                       <SystemMapPage />
                     </ErrorBoundary>
-                  } 
-                />
-                <Route path="/parts/:partId" element={<PartDetailsPage />} />
-              </Routes>
-            </div>
-          </Router>
-        </IFSProvider>
+                  </IFSProvider>
+                </ProtectedRoute>
+              } />
+              <Route path="/parts/:partId" element={
+                <ProtectedRoute>
+                  <IFSProvider>
+                    <PartDetailsPage />
+                  </IFSProvider>
+                </ProtectedRoute>
+              } />
+            </Routes>
+          </div>
+        </Router>
       </AuthProvider>
     </ThemeProvider>
   );

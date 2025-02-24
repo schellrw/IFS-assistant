@@ -1,6 +1,8 @@
 import datetime
+import uuid
 from uuid import uuid4
 from typing import List, Dict, Any, Optional
+from passlib.hash import bcrypt
 
 class Part:
     def __init__(self, name: str, role: Optional[str] = None, description: str = "", feelings: List[str] = None):
@@ -101,4 +103,37 @@ class Journal:
         journal.id = data["id"]
         journal.insights = data.get("insights", [])
         journal.created_at = data["created_at"]
-        return journal 
+        return journal
+
+class User:
+    def __init__(self, username: str, email: str, password: str = None):
+        self.id = str(uuid4())
+        self.username = username
+        self.email = email
+        self.password_hash = bcrypt.hash(password) if password else None
+        self.created_at = datetime.datetime.now().isoformat()
+        self.updated_at = self.created_at
+        
+    def verify_password(self, password: str) -> bool:
+        return bcrypt.verify(password, self.password_hash)
+        
+    def to_dict(self, include_private=False):
+        result = {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
+        }
+        if include_private:
+            result["password_hash"] = self.password_hash
+        return result
+    
+    @classmethod
+    def from_dict(cls, data):
+        user = cls(username=data["username"], email=data["email"])
+        user.id = data["id"]
+        user.password_hash = data.get("password_hash")
+        user.created_at = data["created_at"]
+        user.updated_at = data["updated_at"]
+        return user 
