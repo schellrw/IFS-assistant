@@ -13,10 +13,19 @@ import {
   TextField,
   Box,
   Typography,
-  Alert
+  Alert,
+  Paper,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useNavigate } from 'react-router-dom';
+import { ROLE_OPTIONS } from '../constants';
+import ClearIcon from '@mui/icons-material/Clear';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
 
 const RELATIONSHIP_TYPES = [
   'protects',
@@ -35,6 +44,9 @@ const SystemMapVisualization = ({
   onDeleteRelationship 
 }) => {
   const svgRef = useRef(null);
+  const nodesRef = useRef(null);
+  const linksRef = useRef(null);
+  const linkLabelsRef = useRef(null);
   const [relationshipStart, setRelationshipStart] = useState(null);
   const [relationshipDialog, setRelationshipDialog] = useState({
     open: false,
@@ -50,7 +62,35 @@ const SystemMapVisualization = ({
     part: null
   });
   const [tooltipTimeout, setTooltipTimeout] = useState(null);
+  const [filters, setFilters] = useState({
+    showRelationships: true,
+    selectedRoles: [],
+    selectedRelationshipTypes: []
+  });
+  const [filterPanelOpen, setFilterPanelOpen] = useState(true);
   const navigate = useNavigate();
+
+  // Move applyFilters outside useEffect
+  const applyFilters = () => {
+    if (nodesRef.current) {
+      nodesRef.current.style("opacity", d => 
+        filters.selectedRoles.length === 0 || filters.selectedRoles.includes(d.role) ? 1 : 0.2
+      );
+    }
+    if (linksRef.current) {
+      const visibility = filters.showRelationships ? "visible" : "hidden";
+      linksRef.current.style("visibility", visibility)
+        .style("opacity", d => 
+          filters.selectedRelationshipTypes.length === 0 || 
+          filters.selectedRelationshipTypes.includes(d.relationship_type) ? 1 : 0.2
+        );
+      linkLabelsRef.current.style("visibility", visibility)
+        .style("opacity", d => 
+          filters.selectedRelationshipTypes.length === 0 || 
+          filters.selectedRelationshipTypes.includes(d.relationship_type) ? 1 : 0.2
+        );
+    }
+  };
 
   useEffect(() => {
     if (!parts.length) return;
@@ -134,6 +174,7 @@ const SystemMapVisualization = ({
         .on("start", dragstarted)
         .on("drag", dragged)
         .on("end", dragended));
+    nodesRef.current = nodes;
 
     // Add circles for nodes
     const circles = nodes
@@ -238,15 +279,61 @@ const SystemMapVisualization = ({
     nodes.append("text")
       .text(d => d.name)
       .attr("text-anchor", "middle")
-      .attr("dy", 30)
+      .attr("dy", function(d) {
+        // Calculate optimal label position based on node connections
+        const connections = formattedRelationships.filter(r => 
+          r.source.id === d.id || r.target.id === d.id
+        );
+        
+        if (connections.length === 0) return 30; // Default bottom position
+        
+        // Calculate average direction of connections
+        const avgY = connections.reduce((sum, rel) => {
+          const other = rel.source.id === d.id ? rel.target : rel.source;
+          return sum + (other.y - d.y);
+        }, 0) / connections.length;
+        
+        // Place label opposite to average connection direction
+        return avgY > 0 ? -30 : 30;
+      })
       .style("font-size", "12px")
       .style("pointer-events", "none");
 
-    // Draw relationships
+    // First, group relationships by their connected nodes
+    const groupRelationships = (rels) => {
+      const grouped = {};
+      rels.forEach(rel => {
+        const key = [rel.source.id, rel.target.id].sort().join('-');
+        if (!grouped[key]) {
+          grouped[key] = [];
+        }
+        grouped[key].push(rel);
+      });
+      return grouped;
+    };
+
+    // Group relationships
+    const groupedRelationships = groupRelationships(formattedRelationships);
+
+    // Add this helper function at the top level
+    const getIntersectionPoint = (sourceX, sourceY, targetX, targetY, radius) => {
+      const dx = targetX - sourceX;
+      const dy = targetY - sourceY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const ratio = (distance - radius) / distance;
+      
+      return {
+        x: sourceX + dx * ratio,
+        y: sourceY + dy * ratio
+      };
+    };
+
+    // Create curved paths for relationships
     const links = container.append("g")
-      .selectAll("line")
+      .selectAll("path")
       .data(formattedRelationships)
-      .enter().append("line")
+      .enter().append("path")
+      .attr("fill", "none")
       .attr("stroke", "#999")
       .attr("stroke-opacity", 0.6)
       .attr("stroke-width", 2)
@@ -266,8 +353,9 @@ const SystemMapVisualization = ({
           }
         });
       });
+    linksRef.current = links;
 
-    // Add relationship labels
+    // Add relationship labels with better positioning
     const linkLabels = container.append("g")
       .selectAll("text")
       .data(formattedRelationships)
@@ -277,7 +365,10 @@ const SystemMapVisualization = ({
       .text(d => d.relationship_type)
       .style("font-size", "10px")
       .style("fill", "#666")
-      .style("pointer-events", "none"); // Prevent labels from interfering with clicks
+      .style("pointer-events", "none")
+      .style("background-color", "white")
+      .style("padding", "2px");
+    linkLabelsRef.current = linkLabels;
 
     // Update positions on each tick
     simulation.on("tick", () => {
@@ -289,34 +380,85 @@ const SystemMapVisualization = ({
         return `translate(${x},${y})`;
       });
 
-      links
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y);
+      // Update paths and labels
+      links.attr("d", d => {
+        const sourceX = d.source.x;
+        const sourceY = d.source.y;
+        const targetX = d.target.x;
+        const targetY = d.target.y;
+        
+        // Get intersection points with node circles
+        const sourcePoint = getIntersectionPoint(targetX, targetY, sourceX, sourceY, 20);
+        const targetPoint = getIntersectionPoint(sourceX, sourceY, targetX, targetY, 20);
+        
+        const key = [d.source.id, d.target.id].sort().join('-');
+        const relGroup = groupedRelationships[key];
+        const isMultiRel = relGroup.length > 1;
+        
+        if (isMultiRel) {
+          const index = relGroup.findIndex(r => r.id === d.id);
+          const offset = index === 0 ? 33 : -33;
+          
+          const midX = (sourcePoint.x + targetPoint.x) / 2;
+          const midY = (sourcePoint.y + targetPoint.y) / 2;
+          
+          const dx = targetPoint.x - sourcePoint.x;
+          const dy = targetPoint.y - sourcePoint.y;
+          const norm = Math.sqrt(dx * dx + dy * dy);
+          
+          const shouldFlip = d.source.id > d.target.id;
+          const perpX = (shouldFlip ? dy : -dy) / norm * offset;
+          const perpY = (shouldFlip ? -dx : dx) / norm * offset;
+          
+          return `M${sourcePoint.x},${sourcePoint.y}
+                  Q${midX + perpX},${midY + perpY}
+                  ${targetPoint.x},${targetPoint.y}`;
+        } else {
+          return `M${sourcePoint.x},${sourcePoint.y}L${targetPoint.x},${targetPoint.y}`;
+        }
+      });
 
-      linkLabels
-        .attr("x", d => (d.source.x + d.target.x) / 2)
-        .attr("y", d => (d.source.y + d.target.y) / 2);
+      // Position labels along the paths
+      linkLabels.each(function(d) {
+        const path = links.filter(l => l.id === d.id).node();
+        if (path) {
+          const pathLength = path.getTotalLength();
+          const midPoint = path.getPointAtLength(pathLength / 2);
+          
+          // Add a white background rectangle for better readability
+          const bbox = this.getBBox();
+          const padding = 2;
+          
+          d3.select(this)
+            .attr("x", midPoint.x)
+            .attr("y", midPoint.y)
+            .attr("dx", -bbox.width / 2 - padding)
+            .attr("dy", -padding);
+        }
+      });
+
+      // Reapply filters after each tick
+      applyFilters();
     });
 
     // Update drag behavior to work with zoom
     function dragstarted(event) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
-      event.subject.fx = event.x;
-      event.subject.fy = event.y;
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
     }
 
     function dragged(event) {
       event.subject.fx = event.x;
       event.subject.fy = event.y;
+      applyFilters();
     }
 
     function dragended(event) {
       if (!event.active) simulation.alphaTarget(0);
       event.subject.fx = null;
       event.subject.fy = null;
-      simulation.alpha(0.3).restart(); // Restart simulation after drag
+      applyFilters();
     }
 
     // Add double-click to reset zoom and center
@@ -338,7 +480,7 @@ const SystemMapVisualization = ({
         clearTimeout(tooltipTimeout);
       }
     };
-  }, [parts, relationships, relationshipStart, navigate, tooltipTimeout]);
+  }, [parts, relationships, relationshipStart, navigate, tooltipTimeout, filters]);
 
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
@@ -387,8 +529,135 @@ const SystemMapVisualization = ({
     setRelationshipStart(null);
   };
 
+  const handleRelationshipToggle = (checked) => {
+    setFilters(prev => ({
+      ...prev,
+      showRelationships: checked
+    }));
+    applyFilters();
+  };
+
+  const handleRoleFilter = (newRoles) => {
+    setFilters(prev => ({
+      ...prev,
+      selectedRoles: newRoles
+    }));
+    applyFilters();
+  };
+
+  const handleRelationshipFilter = (newTypes) => {
+    setFilters(prev => ({
+      ...prev,
+      selectedRelationshipTypes: newTypes
+    }));
+    applyFilters();
+  };
+
   return (
     <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* Filter Panel */}
+      <Paper
+        sx={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          p: 2,
+          zIndex: 1000,
+          maxWidth: 300,
+          maxHeight: '80vh',
+          overflow: 'auto'
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography variant="h6">
+            Filters
+          </Typography>
+          <IconButton 
+            size="small" 
+            onClick={() => setFilterPanelOpen(!filterPanelOpen)}
+          >
+            <FilterListIcon />
+          </IconButton>
+        </Box>
+
+        <Collapse in={filterPanelOpen}>
+          {/* Relationship Toggle */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={filters.showRelationships}
+                onChange={(e) => handleRelationshipToggle(e.target.checked)}
+              />
+            }
+            label="Show Relationships"
+          />
+
+          {/* Role Filter */}
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Filter by Role
+              {filters.selectedRoles.length > 0 && (
+                <IconButton 
+                  size="small" 
+                  onClick={() => handleRoleFilter([])}
+                  sx={{ ml: 1 }}
+                >
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {ROLE_OPTIONS.map(role => (
+                <Chip
+                  key={role.value}
+                  label={role.label}
+                  onClick={() => {
+                    const newRoles = filters.selectedRoles.includes(role.value)
+                      ? filters.selectedRoles.filter(r => r !== role.value)
+                      : [...filters.selectedRoles, role.value];
+                    handleRoleFilter(newRoles);
+                  }}
+                  color={filters.selectedRoles.includes(role.value) ? "primary" : "default"}
+                  size="small"
+                />
+              ))}
+            </Box>
+          </Box>
+
+          {/* Relationship Type Filter */}
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Filter by Relationship
+              {filters.selectedRelationshipTypes.length > 0 && (
+                <IconButton 
+                  size="small" 
+                  onClick={() => handleRelationshipFilter([])}
+                  sx={{ ml: 1 }}
+                >
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {RELATIONSHIP_TYPES.map(type => (
+                <Chip
+                  key={type}
+                  label={type}
+                  onClick={() => {
+                    const newTypes = filters.selectedRelationshipTypes.includes(type)
+                      ? filters.selectedRelationshipTypes.filter(t => t !== type)
+                      : [...filters.selectedRelationshipTypes, type];
+                    handleRelationshipFilter(newTypes);
+                  }}
+                  color={filters.selectedRelationshipTypes.includes(type) ? "primary" : "default"}
+                  size="small"
+                />
+              ))}
+            </Box>
+          </Box>
+        </Collapse>
+      </Paper>
+
       {relationshipStart && (
         <Alert 
           severity="info" 
