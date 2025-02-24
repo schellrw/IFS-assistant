@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
 import {
   Container,
@@ -29,6 +29,7 @@ const ROLE_OPTIONS = [
 
 const PartDetailsPage = () => {
   const { partId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { system, updatePart, deletePart } = useIFS();
   const [isEditing, setIsEditing] = useState(false);
@@ -37,6 +38,18 @@ const PartDetailsPage = () => {
 
   const part = system?.parts[partId];
   const [formData, setFormData] = useState(part || {});
+
+  // Get the backLink from URL params
+  const backLink = searchParams.get('backLink');
+
+  // Update the back button
+  const handleBack = () => {
+    if (backLink === 'system-map') {
+      navigate('/system-map');
+    } else {
+      navigate('/parts');
+    }
+  };
 
   if (!part) {
     return (
@@ -79,10 +92,10 @@ const PartDetailsPage = () => {
       <Box sx={{ my: 4 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/parts')}
+          onClick={handleBack}
           sx={{ mb: 2 }}
         >
-          Back to Parts
+          {backLink === 'system-map' ? 'Back to System Map' : 'Back to Parts'}
         </Button>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>

@@ -16,6 +16,7 @@ import {
   Alert
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { useNavigate } from 'react-router-dom';
 
 const RELATIONSHIP_TYPES = [
   'protects',
@@ -42,6 +43,13 @@ const SystemMapVisualization = ({
     type: '',
     description: ''
   });
+  const [tooltip, setTooltip] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    part: null
+  });
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!parts.length) return;
@@ -139,9 +147,6 @@ const SystemMapVisualization = ({
       .attr("fill", "transparent")
       .style("cursor", "pointer")
       .on("mousedown", (event, d) => {
-        console.log('Node clicked:', d.name);
-        console.log('Ctrl/Cmd key pressed:', event.ctrlKey || event.metaKey);
-        
         if (event.ctrlKey || event.metaKey) {
           event.preventDefault();
           event.stopPropagation();
@@ -181,6 +186,22 @@ const SystemMapVisualization = ({
             
             setRelationshipStart(null);
           }
+        }
+      })
+      .on("mouseover", (event, d) => {
+        const [x, y] = d3.pointer(event, svg.node());
+        setTooltip({
+          visible: true,
+          x: x + 30, // Offset to not interfere with the node
+          y: y - 20,
+          part: d
+        });
+      })
+      .on("mouseout", (event) => {
+        // Only hide if not hovering over the tooltip
+        const tooltipElement = document.getElementById('part-tooltip');
+        if (!tooltipElement?.matches(':hover')) {
+          setTooltip({ visible: false, x: 0, y: 0, part: null });
         }
       });
 
@@ -284,7 +305,7 @@ const SystemMapVisualization = ({
     return () => {
       simulation.stop();
     };
-  }, [parts, relationships, relationshipStart]);
+  }, [parts, relationships, relationshipStart, navigate]);
 
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
@@ -355,24 +376,51 @@ const SystemMapVisualization = ({
         style={{ width: '100%', height: '100%' }}
       />
       
-      {/* Tooltip */}
-      <div
-        id="node-tooltip"
-        style={{
-          position: 'absolute',
-          visibility: 'hidden',
-          backgroundColor: 'white',
-          border: '1px solid #ccc',
-          borderRadius: '4px',
-          padding: '8px',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-          zIndex: 1000
-        }}
-      >
-        <div className="name" style={{ fontWeight: 'bold' }}></div>
-        <div className="role" style={{ color: '#666' }}></div>
-        <div className="description" style={{ fontSize: '0.9em' }}></div>
-      </div>
+      {/* Part Details Tooltip */}
+      {tooltip.visible && tooltip.part && (
+        <Box
+          id="part-tooltip"
+          sx={{
+            position: 'absolute',
+            left: tooltip.x,
+            top: tooltip.y,
+            backgroundColor: 'white',
+            border: '1px solid #ccc',
+            borderRadius: '4px',
+            padding: '8px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            zIndex: 1000,
+            minWidth: '200px',
+            pointerEvents: 'auto', // Enable interactions with the tooltip
+            '&:hover': {
+              // Keep tooltip visible when hovering over it
+              visibility: 'visible'
+            }
+          }}
+          onMouseLeave={() => {
+            setTooltip({ visible: false, x: 0, y: 0, part: null });
+          }}
+        >
+          <Typography variant="subtitle2" gutterBottom>
+            {tooltip.part.name}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            {tooltip.part.role || 'No role specified'}
+          </Typography>
+          <Typography variant="body2" noWrap sx={{ mb: 1 }}>
+            {tooltip.part.description?.slice(0, 100) || 'No description'}
+            {tooltip.part.description?.length > 100 ? '...' : ''}
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => navigate(`/parts/${tooltip.part.id}?backLink=system-map`)}
+            sx={{ width: '100%' }}
+          >
+            View Details
+          </Button>
+        </Box>
+      )}
 
       <Dialog 
         open={relationshipDialog.open} 
