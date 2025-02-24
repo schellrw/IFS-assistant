@@ -48,15 +48,18 @@ export const AuthProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
+      console.log('Attempting registration with:', { username, email });
       const response = await axios.post(`${API_BASE_URL}/api/register`, {
         username,
         email,
         password
       });
+      console.log('Registration response:', response.data);
       setToken(response.data.access_token);
       setCurrentUser(response.data.user);
       return response.data;
     } catch (err) {
+      console.error('Registration error details:', err.response?.data || err.message);
       const message = err.response?.data?.error || 'Registration failed';
       setError(message);
       throw new Error(message);

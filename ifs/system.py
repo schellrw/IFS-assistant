@@ -102,3 +102,134 @@ class IFSSystem:
             system.journals[journal_id] = Journal.from_dict(journal_data)
         
         return system 
+
+# This file now serves as a utility file for system operations
+# The IFSSystem model is defined in models.py
+
+def generate_system_graph(system):
+    """Generate a NetworkX graph from the system data"""
+    G = nx.DiGraph()
+    
+    # Add nodes (parts)
+    for part in system.parts:
+        G.add_node(part.id, label=part.name, role=part.role or "Unknown")
+    
+    # Add edges (relationships)
+    for rel in system.relationships:
+        G.add_edge(
+            rel.source_id, 
+            rel.target_id, 
+            type=rel.relationship_type,
+            description=rel.description
+        )
+    
+    return G
+
+def plot_system_graph(system, filename=None):
+    """Plot the system graph and save it to a file if specified"""
+    G = generate_system_graph(system)
+    
+    # Get node positions using spring layout
+    pos = nx.spring_layout(G, seed=42)
+    
+    # Create figure and axis
+    plt.figure(figsize=(12, 10))
+    
+    # Draw nodes
+    nx.draw_networkx_nodes(G, pos, node_size=700, node_color='lightblue')
+    
+    # Draw edges
+    nx.draw_networkx_edges(G, pos, arrowsize=15, width=1.5)
+    
+    # Draw node labels
+    node_labels = {node: G.nodes[node]['label'] for node in G.nodes}
+    nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=10)
+    
+    # Draw edge labels
+    edge_labels = {(u, v): G.edges[u, v]['type'] for u, v in G.edges}
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+    
+    # Set title and remove axis
+    plt.title("Internal Family System")
+    plt.axis('off')
+    
+    # Save or show
+    if filename:
+        plt.savefig(filename)
+        plt.close()
+        return filename
+    else:
+        plt.tight_layout()
+        plt.show()
+        
+def export_system_json(system):
+    """Export the system to a JSON file"""
+    return json.dumps(system.to_dict(), indent=2)
+
+def import_system_json(json_data, user_id):
+    """Import a system from JSON data"""
+    from .models import db, IFSSystem, Part, Relationship, Journal
+    
+    data = json.loads(json_data)
+    
+    # Create new system
+    system = IFSSystem(user_id=user_id)
+    db.session.add(system)
+    db.session.flush()  # Get the system ID
+    
+    # Add parts
+    parts_map = {}  # Map old IDs to new parts
+    for part_id, part_data in data.get('parts', {}).items():
+        part = Part(
+            name=part_data['name'],
+            system_id=system.id,
+            role=part_data.get('role'),
+            description=part_data.get('description', '')
+        )
+        part.feelings = json.dumps(part_data.get('feelings', []))
+        part.beliefs = json.dumps(part_data.get('beliefs', []))
+        part.triggers = json.dumps(part_data.get('triggers', []))
+        part.needs = json.dumps(part_data.get('needs', []))
+        part.created_at = part_data.get('created_at', datetime.datetime.now().isoformat())
+        part.updated_at = part_data.get('updated_at', datetime.datetime.now().isoformat())
+        
+        db.session.add(part)
+        parts_map[part_id] = part
+    
+    db.session.flush()  # Get part IDs
+    
+    # Add relationships
+    for rel_id, rel_data in data.get('relationships', {}).items():
+        source_id = parts_map[rel_data['source_id']].id
+        target_id = parts_map[rel_data['target_id']].id
+        
+        relationship = Relationship(
+            source_id=source_id,
+            target_id=target_id,
+            relationship_type=rel_data['relationship_type'],
+            description=rel_data.get('description', ''),
+            system_id=system.id
+        )
+        relationship.created_at = rel_data.get('created_at', datetime.datetime.now().isoformat())
+        
+        db.session.add(relationship)
+    
+    # Add journals
+    for journal_id, journal_data in data.get('journals', {}).items():
+        # Find the new part ID if part_id is present
+        part_id = None
+        if journal_data.get('part_id') and journal_data['part_id'] in parts_map:
+            part_id = parts_map[journal_data['part_id']].id
+            
+        journal = Journal(
+            title=journal_data.get('title', 'Imported Journal'),
+            content=journal_data.get('content', ''),
+            part_id=part_id,
+            system_id=system.id
+        )
+        journal.date = journal_data.get('date', datetime.datetime.now().isoformat())
+        
+        db.session.add(journal)
+    
+    db.session.commit()
+    return system 

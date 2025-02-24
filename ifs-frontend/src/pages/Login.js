@@ -71,6 +71,16 @@ const Login = () => {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
             
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<img src="/google-icon.svg" alt="Google" width="18" />}
+              sx={{ mt: 2 }}
+              onClick={() => window.location.href = 'http://localhost:5000/login/google'}
+            >
+              Sign in with Google
+            </Button>
+            
             <Box sx={{ textAlign: 'center', mt: 2 }}>
               <Typography variant="body2">
                 Don't have an account?{' '}
