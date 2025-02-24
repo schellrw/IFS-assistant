@@ -49,6 +49,7 @@ const SystemMapVisualization = ({
     y: 0,
     part: null
   });
+  const [tooltipTimeout, setTooltipTimeout] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -145,6 +146,7 @@ const SystemMapVisualization = ({
     nodes.append("circle")
       .attr("r", 25)
       .attr("fill", "transparent")
+      .attr("data-part-id", d => d.id)
       .style("cursor", "pointer")
       .on("mousedown", (event, d) => {
         if (event.ctrlKey || event.metaKey) {
@@ -198,11 +200,38 @@ const SystemMapVisualization = ({
         });
       })
       .on("mouseout", (event) => {
-        // Only hide if not hovering over the tooltip
-        const tooltipElement = document.getElementById('part-tooltip');
-        if (!tooltipElement?.matches(':hover')) {
-          setTooltip({ visible: false, x: 0, y: 0, part: null });
+        // Clear any existing timeout
+        if (tooltipTimeout) {
+          clearTimeout(tooltipTimeout);
         }
+        
+        // Create a safe zone between node and tooltip
+        const tooltipElement = document.getElementById('part-tooltip');
+        if (tooltipElement) {
+          const nodeRect = event.target.getBoundingClientRect();
+          const tooltipRect = tooltipElement.getBoundingClientRect();
+          
+          const mouseX = event.clientX;
+          const mouseY = event.clientY;
+          
+          // Check if mouse is moving towards tooltip
+          const movingToTooltip = 
+            mouseX >= Math.min(nodeRect.right, tooltipRect.left) &&
+            mouseX <= Math.max(nodeRect.right, tooltipRect.right) &&
+            mouseY >= Math.min(nodeRect.top, tooltipRect.top) &&
+            mouseY <= Math.max(nodeRect.bottom, tooltipRect.bottom);
+          
+          if (movingToTooltip || tooltipElement.matches(':hover')) {
+            return;
+          }
+        }
+        
+        // Set a timeout to hide the tooltip
+        const timeout = setTimeout(() => {
+          setTooltip({ visible: false, x: 0, y: 0, part: null });
+        }, 300); // 300ms delay
+        
+        setTooltipTimeout(timeout);
       });
 
     // Add labels
@@ -304,8 +333,12 @@ const SystemMapVisualization = ({
 
     return () => {
       simulation.stop();
+      // Clear any existing tooltip timeout
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+      }
     };
-  }, [parts, relationships, relationshipStart, navigate]);
+  }, [parts, relationships, relationshipStart, navigate, tooltipTimeout]);
 
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
@@ -391,13 +424,38 @@ const SystemMapVisualization = ({
             boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
             zIndex: 1000,
             minWidth: '200px',
-            pointerEvents: 'auto', // Enable interactions with the tooltip
+            pointerEvents: 'auto',
+            transition: 'opacity 0.2s ease-in-out',
             '&:hover': {
-              // Keep tooltip visible when hovering over it
               visibility: 'visible'
             }
           }}
-          onMouseLeave={() => {
+          onMouseEnter={() => {
+            // Clear hide timeout when entering tooltip
+            if (tooltipTimeout) {
+              clearTimeout(tooltipTimeout);
+              setTooltipTimeout(null);
+            }
+          }}
+          onMouseLeave={(event) => {
+            // Check if moving back to node
+            const nodeElement = document.querySelector(`[data-part-id="${tooltip.part.id}"]`);
+            if (nodeElement) {
+              const nodeRect = nodeElement.getBoundingClientRect();
+              const mouseX = event.clientX;
+              const mouseY = event.clientY;
+              
+              const movingToNode = 
+                mouseX >= nodeRect.left &&
+                mouseX <= nodeRect.right &&
+                mouseY >= nodeRect.top &&
+                mouseY <= nodeRect.bottom;
+              
+              if (movingToNode) {
+                return;
+              }
+            }
+            
             setTooltip({ visible: false, x: 0, y: 0, part: null });
           }}
         >
