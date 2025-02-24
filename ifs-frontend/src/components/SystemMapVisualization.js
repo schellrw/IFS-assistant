@@ -47,6 +47,7 @@ const SystemMapVisualization = ({
   const nodesRef = useRef(null);
   const linksRef = useRef(null);
   const linkLabelsRef = useRef(null);
+  const tooltipTimeoutRef = useRef(null);
   const [relationshipStart, setRelationshipStart] = useState(null);
   const [relationshipDialog, setRelationshipDialog] = useState({
     open: false,
@@ -61,7 +62,6 @@ const SystemMapVisualization = ({
     y: 0,
     part: null
   });
-  const [tooltipTimeout, setTooltipTimeout] = useState(null);
   const [filters, setFilters] = useState({
     showRelationships: true,
     selectedRoles: [],
@@ -94,6 +94,8 @@ const SystemMapVisualization = ({
 
   useEffect(() => {
     if (!parts.length) return;
+
+    let tooltipTimeout; // Move this inside if it's only used here
 
     // Format relationships for D3
     const formattedRelationships = relationships.map(rel => ({
@@ -242,8 +244,8 @@ const SystemMapVisualization = ({
       })
       .on("mouseout", (event) => {
         // Clear any existing timeout
-        if (tooltipTimeout) {
-          clearTimeout(tooltipTimeout);
+        if (tooltipTimeoutRef.current) {
+          clearTimeout(tooltipTimeoutRef.current);
         }
         
         // Create a safe zone between node and tooltip
@@ -270,9 +272,9 @@ const SystemMapVisualization = ({
         // Set a timeout to hide the tooltip
         const timeout = setTimeout(() => {
           setTooltip({ visible: false, x: 0, y: 0, part: null });
-        }, 300); // 300ms delay
+        }, 300);
         
-        setTooltipTimeout(timeout);
+        tooltipTimeoutRef.current = timeout;
       });
 
     // Add labels
@@ -473,14 +475,14 @@ const SystemMapVisualization = ({
         .restart();
     });
 
+    // Cleanup function
     return () => {
       simulation.stop();
-      // Clear any existing tooltip timeout
-      if (tooltipTimeout) {
-        clearTimeout(tooltipTimeout);
+      if (tooltipTimeoutRef.current) {
+        clearTimeout(tooltipTimeoutRef.current);
       }
     };
-  }, [parts, relationships, relationshipStart, navigate, tooltipTimeout, filters]);
+  }, [parts, relationships, relationshipStart, filters, navigate]);
 
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;
@@ -700,10 +702,9 @@ const SystemMapVisualization = ({
             }
           }}
           onMouseEnter={() => {
-            // Clear hide timeout when entering tooltip
-            if (tooltipTimeout) {
-              clearTimeout(tooltipTimeout);
-              setTooltipTimeout(null);
+            if (tooltipTimeoutRef.current) {
+              clearTimeout(tooltipTimeoutRef.current);
+              tooltipTimeoutRef.current = null;
             }
           }}
           onMouseLeave={(event) => {

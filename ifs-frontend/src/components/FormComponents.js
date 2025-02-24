@@ -1,5 +1,7 @@
 import React from 'react';
-import { TextField, MenuItem, Chip, Box } from '@mui/material';
+import { TextField, MenuItem, Chip, Box, IconButton, InputAdornment, Paper, Typography } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 export const InputField = ({ label, value, onChange, required = false }) => (
   <TextField
@@ -41,44 +43,126 @@ export const RoleSelector = ({ label, options, value, onChange }) => (
   </TextField>
 );
 
-export const FeelingsInput = ({ label, value, onChange }) => {
+export const FeelingsInput = ({ value = [], onChange, label }) => {
   const [inputValue, setInputValue] = React.useState('');
 
-  const handleAdd = (feeling) => {
-    if (feeling && !value.includes(feeling)) {
-      onChange([...value, feeling]);
+  const handleAdd = () => {
+    if (inputValue.trim()) {
+      onChange([...value, inputValue.trim()]);
+      setInputValue('');
     }
-    setInputValue('');
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAdd();
+    }
   };
 
   const handleDelete = (feelingToDelete) => {
-    onChange(value.filter((feeling) => feeling !== feelingToDelete));
+    onChange(value.filter(feeling => feeling !== feelingToDelete));
   };
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box>
       <TextField
         fullWidth
         label={label}
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
-        onKeyPress={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAdd(inputValue);
-          }
+        onKeyPress={handleKeyPress}
+        helperText="Press Enter or click + to add a feeling"
+        InputProps={{
+          endAdornment: (
+            <InputAdornment position="end">
+              <IconButton 
+                onClick={handleAdd}
+                disabled={!inputValue.trim()}
+                size="small"
+              >
+                <AddIcon />
+              </IconButton>
+            </InputAdornment>
+          ),
         }}
-        margin="normal"
       />
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-        {value.map((feeling) => (
+      <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        {value.map((feeling, index) => (
           <Chip
-            key={feeling}
+            key={index}
             label={feeling}
             onDelete={() => handleDelete(feeling)}
+            color="primary"
+            variant="outlined"
           />
         ))}
       </Box>
+    </Box>
+  );
+};
+
+export const ListInput = ({ value = [], onChange, label, placeholder }) => {
+  const handleChange = (index, newValue) => {
+    const newList = [...value];
+    if (newValue.trim()) {
+      newList[index] = newValue;
+    } else {
+      newList.splice(index, 1);
+    }
+    onChange(newList);
+  };
+
+  const handleKeyDown = (e, index) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newList = [...value];
+      if (index === value.length - 1) {
+        newList.push('');
+      } else {
+        newList.splice(index + 1, 0, '');
+      }
+      onChange(newList);
+    }
+  };
+
+  return (
+    <Box>
+      <Typography variant="subtitle2" gutterBottom>
+        {label}
+      </Typography>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        {[...value, ''].map((item, index) => (
+          <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Typography sx={{ mr: 1 }}>•</Typography>
+            <TextField
+              fullWidth
+              size="small"
+              value={item}
+              placeholder={index === value.length ? `Add new ${label.toLowerCase()}...` : ''}
+              onChange={(e) => handleChange(index, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              multiline
+              variant="standard"
+              InputProps={{
+                disableUnderline: true
+              }}
+            />
+            {item && (
+              <IconButton 
+                size="small" 
+                onClick={() => {
+                  const newList = [...value];
+                  newList.splice(index, 1);
+                  onChange(newList);
+                }}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
+        ))}
+      </Paper>
     </Box>
   );
 }; 

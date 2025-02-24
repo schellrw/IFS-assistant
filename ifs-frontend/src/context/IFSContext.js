@@ -38,7 +38,15 @@ export const IFSProvider = ({ children }) => {
 
   const addPart = async (partData) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/parts`, partData);
+      const formattedPart = {
+        ...partData,
+        feelings: Array.isArray(partData.feelings) ? partData.feelings : [],
+        beliefs: Array.isArray(partData.beliefs) ? partData.beliefs : [],
+        triggers: Array.isArray(partData.triggers) ? partData.triggers : [],
+        needs: Array.isArray(partData.needs) ? partData.needs : []
+      };
+
+      const response = await axios.post(`${API_BASE_URL}/api/parts`, formattedPart);
       await fetchSystem(); // Refresh system data
       return response.data;
     } catch (err) {

@@ -16,16 +16,17 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { InputField, TextArea, RoleSelector, FeelingsInput } from '../components';
+import { InputField, TextArea, RoleSelector, FeelingsInput, ListInput } from '../components';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { ROLE_OPTIONS } from '../constants';
 
-const ROLE_OPTIONS = [
-  { value: 'protector', label: 'Protector' },
-  { value: 'exile', label: 'Exile' },
-  { value: 'manager', label: 'Manager' },
-  { value: 'firefighter', label: 'Firefighter' },
-  { value: 'self', label: 'Self' },
-];
+// const ROLE_OPTIONS = [
+//   { value: 'protector', label: 'Protector' },
+//   { value: 'exile', label: 'Exile' },
+//   { value: 'manager', label: 'Manager' },
+//   { value: 'firefighter', label: 'Firefighter' },
+//   { value: 'self', label: 'Self' },
+// ];
 
 const PartDetailsPage = () => {
   const { partId } = useParams();
@@ -160,25 +161,25 @@ const PartDetailsPage = () => {
                 onChange={(value) => handleChange('feelings', value)}
               />
 
-              <TextArea
+              <ListInput
                 label="Core Beliefs"
-                value={formData.beliefs?.join('\n')}
-                onChange={(value) => handleChange('beliefs', value.split('\n').filter(b => b.trim()))}
-                placeholder="Enter one belief per line"
+                value={formData.beliefs || []}
+                onChange={(value) => handleChange('beliefs', value)}
+                placeholder="Enter a core belief..."
               />
 
-              <TextArea
+              <ListInput
                 label="Triggers"
-                value={formData.triggers?.join('\n')}
-                onChange={(value) => handleChange('triggers', value.split('\n').filter(t => t.trim()))}
-                placeholder="Enter one trigger per line"
+                value={formData.triggers || []}
+                onChange={(value) => handleChange('triggers', value)}
+                placeholder="Enter a trigger..."
               />
 
-              <TextArea
+              <ListInput
                 label="Needs"
-                value={formData.needs?.join('\n')}
-                onChange={(value) => handleChange('needs', value.split('\n').filter(n => n.trim()))}
-                placeholder="Enter one need per line"
+                value={formData.needs || []}
+                onChange={(value) => handleChange('needs', value)}
+                placeholder="Enter a need..."
               />
 
               <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
