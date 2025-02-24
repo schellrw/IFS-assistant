@@ -482,7 +482,7 @@ const SystemMapVisualization = ({
         clearTimeout(tooltipTimeoutRef.current);
       }
     };
-  }, [parts, relationships, relationshipStart, filters, navigate]);
+  }, [parts, relationships, relationshipStart, filters, navigate, applyFilters]);
 
   const handleRelationshipSave = async () => {
     const { source, target, type, description, existing } = relationshipDialog;

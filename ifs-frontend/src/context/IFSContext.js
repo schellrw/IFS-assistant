@@ -124,6 +124,16 @@ export const IFSProvider = ({ children }) => {
     }
   };
 
+  const updatePartOrder = async (newOrder) => {
+    try {
+      await axios.put(`${API_BASE_URL}/api/parts/order`, { order: newOrder });
+      await fetchSystem(); // Refresh system data
+    } catch (err) {
+      console.error('Error updating part order:', err);
+      throw err;
+    }
+  };
+
   const value = {
     system,
     loading,
@@ -131,6 +141,7 @@ export const IFSProvider = ({ children }) => {
     fetchSystem,
     addPart,
     updatePart,
+    updatePartOrder,
     addJournal,
     addRelationship,
     updateRelationship,

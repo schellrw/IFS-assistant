@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { Box, Button, Stack } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
-import { useIFS } from '../context/IFSContext';
 import { InputField, TextArea, RoleSelector, FeelingsInput, ListInput } from './FormComponents';
 import { ROLE_OPTIONS } from '../constants';
 

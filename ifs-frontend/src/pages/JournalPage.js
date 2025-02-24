@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useIFS } from '../context/IFSContext';
 import { 
   Container, Typography, Box, Paper, TextField, Button,
-  Divider, Stack, Alert
+  Stack, Alert
 } from '@mui/material';
 import { EmotionPicker, PartSelector, ReflectivePrompt } from '../components';
 
