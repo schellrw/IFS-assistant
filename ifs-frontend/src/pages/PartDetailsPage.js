@@ -17,6 +17,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import { InputField, TextArea, RoleSelector, FeelingsInput } from '../components';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 const ROLE_OPTIONS = [
   { value: 'protector', label: 'Protector' },
@@ -76,6 +77,14 @@ const PartDetailsPage = () => {
   return (
     <Container maxWidth="md">
       <Box sx={{ my: 4 }}>
+        <Button
+          startIcon={<ArrowBackIcon />}
+          onClick={() => navigate('/parts')}
+          sx={{ mb: 2 }}
+        >
+          Back to Parts
+        </Button>
+
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
           <Typography variant="h4" component="h1">
             {isEditing ? 'Edit Part' : part.name}
@@ -213,7 +222,6 @@ const PartDetailsPage = () => {
           )}
         </Paper>
 
-        {/* Delete Confirmation Dialog */}
         <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
           <DialogTitle>Delete Part</DialogTitle>
           <DialogContent>
