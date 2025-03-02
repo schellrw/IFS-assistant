@@ -12,6 +12,11 @@ import {
   IconButton,
   Menu,
   MenuItem,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +26,7 @@ const Navigation = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [anchorEl, setAnchorEl] = React.useState(null);
+  const [logoutDialogOpen, setLogoutDialogOpen] = React.useState(false);
   const { currentUser, logout } = useAuth();
   
   const handleMenuClick = (event) => {
@@ -29,6 +35,22 @@ const Navigation = () => {
   
   const handleMenuClose = () => {
     setAnchorEl(null);
+  };
+  
+  const handleLogoutClick = () => {
+    setLogoutDialogOpen(true);
+  };
+
+  const handleLogoutCancel = () => {
+    setLogoutDialogOpen(false);
+  };
+
+  const handleLogoutConfirm = () => {
+    setLogoutDialogOpen(false);
+    logout();
+    if (anchorEl) {
+      handleMenuClose();
+    }
   };
   
   const isActive = (path) => location.pathname === path;
@@ -88,7 +110,7 @@ const Navigation = () => {
                         {item.label}
                       </MenuItem>
                     ))}
-                    <MenuItem onClick={() => { handleMenuClose(); logout(); }}>
+                    <MenuItem onClick={handleLogoutClick}>
                       Logout
                     </MenuItem>
                   </Menu>
@@ -114,13 +136,38 @@ const Navigation = () => {
                   </Box>
                   <Button 
                     color="inherit" 
-                    onClick={logout}
+                    onClick={handleLogoutClick}
                     sx={{ ml: 2 }}
                   >
                     Logout
                   </Button>
                 </>
               )}
+              
+              {/* Logout Confirmation Dialog */}
+              <Dialog
+                open={logoutDialogOpen}
+                onClose={handleLogoutCancel}
+                aria-labelledby="logout-dialog-title"
+                aria-describedby="logout-dialog-description"
+              >
+                <DialogTitle id="logout-dialog-title">
+                  Confirm Logout
+                </DialogTitle>
+                <DialogContent>
+                  <DialogContentText id="logout-dialog-description">
+                    Are you sure you want to log out?
+                  </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={handleLogoutCancel} color="primary">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleLogoutConfirm} color="primary" autoFocus>
+                    Logout
+                  </Button>
+                </DialogActions>
+              </Dialog>
             </>
           ) : (
             <>
