@@ -1,6 +1,27 @@
 import os
 from datetime import timedelta
 from typing import List, Optional
+from urllib.parse import quote_plus, urlparse, urlunparse
+
+# Database URL configuration function
+def get_db_url():
+    """Get database URL with encoded password."""
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url and db_url.startswith('postgresql://'):
+        # Parse the URL to extract components
+        parsed = urlparse(db_url)
+        userinfo = parsed.netloc.split('@')[0]
+        
+        # If URL contains password
+        if ':' in userinfo:
+            username, password = userinfo.split(':')
+            # URL encode the password
+            encoded_password = quote_plus(password)
+            # Reconstruct the URL
+            host_port = parsed.netloc.split('@')[1]
+            return f"postgresql://{username}:{encoded_password}@{host_port}{parsed.path}"
+            
+    return db_url
 
 class Config:
     """Base configuration."""
@@ -12,7 +33,7 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=1)
     
     # Database settings
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    SQLALCHEMY_DATABASE_URI = get_db_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # CORS settings
