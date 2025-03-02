@@ -4,7 +4,7 @@ import {
   ListItemText, ListItemIcon, Divider, Button, Chip, CircularProgress,
   Card, CardContent, CardActions, IconButton, Tooltip
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
@@ -15,20 +15,8 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { format, formatDistanceToNow, differenceInDays } from 'date-fns';
 import { useIFS } from '../context/IFSContext';
+import { REFLECTIVE_PROMPTS } from '../constants';
 import axios from 'axios';
-
-// For reflective prompts
-const REFLECTIVE_PROMPTS = [
-  "What am I feeling in my body right now?",
-  "Which parts of me are present in this moment?",
-  "What does this part want me to know?",
-  "How does Self feel toward this part?",
-  "What does this part need?",
-  "How might these parts be connected?",
-  "What protective role does this part serve?",
-  "What is this part afraid might happen?",
-  "What would help this part feel safer?"
-];
 
 // Configure API base URL - can be changed via environment variable later
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -42,6 +30,7 @@ const Dashboard = () => {
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [currentPrompt, setCurrentPrompt] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Get a random reflective prompt
   const getRandomPrompt = () => {
@@ -545,7 +534,9 @@ const Dashboard = () => {
                     backgroundColor: 'rgba(255,255,255,0.9)',
                   }
                 }}
-                onClick={() => navigate('/journal')}
+                onClick={() => navigate('/journal', { 
+                  state: { selectedPrompt: currentPrompt } 
+                })}
               >
                 Journal About This
               </Button>
