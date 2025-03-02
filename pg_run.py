@@ -77,7 +77,7 @@ if __name__ == "__main__":
             print(f"App DB config: {app.config['SQLALCHEMY_DATABASE_URI']}")
         
         # Register a test user function - uncomment to automatically create a test user
-        register_test_user()
+        # register_test_user()
         
         # Run the Flask app
         app.run(host="127.0.0.1", port=port, debug=True)

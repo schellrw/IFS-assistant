@@ -17,6 +17,7 @@ export const IFSProvider = ({ children }) => {
   const [system, setSystem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [journals, setJournals] = useState([]);
 
   useEffect(() => {
     fetchSystem();
@@ -66,10 +67,33 @@ export const IFSProvider = ({ children }) => {
     }
   };
 
+  const getJournals = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/journals`);
+      // Sort journals by date (newest first)
+      const sortedJournals = response.data.sort((a, b) => 
+        new Date(b.date) - new Date(a.date)
+      );
+      setJournals(sortedJournals);
+      return sortedJournals;
+    } catch (err) {
+      console.error('Error fetching journals:', err);
+      throw err;
+    }
+  };
+
   const addJournal = async (journalData) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/journals`, journalData);
-      await fetchSystem(); // Refresh system data
+      // Ensure required fields are present
+      const validatedData = {
+        title: journalData.title || `Journal Entry ${new Date().toLocaleString()}`,
+        content: journalData.content || '',
+        part_id: journalData.part_id || null,
+        metadata: journalData.metadata || ''
+      };
+
+      const response = await axios.post(`${API_BASE_URL}/api/journals`, validatedData);
+      await getJournals(); // Refresh journals data
       return response.data;
     } catch (err) {
       console.error('Error adding journal entry:', err);
@@ -138,11 +162,13 @@ export const IFSProvider = ({ children }) => {
     system,
     loading,
     error,
+    journals,
     fetchSystem,
     addPart,
     updatePart,
     updatePartOrder,
     addJournal,
+    getJournals,
     addRelationship,
     updateRelationship,
     deleteRelationship,

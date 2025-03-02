@@ -18,6 +18,7 @@ class Journal(db.Model):
     title = Column(String(200), nullable=False)
     content = Column(Text)
     date = Column(DateTime, default=func.now())
+    journal_metadata = Column(Text)  # For storing emotions, parts_present, and other flexible data
     
     # Relationships
     part_id = Column(UUID(as_uuid=True), ForeignKey('parts.id'), nullable=True)
@@ -27,7 +28,7 @@ class Journal(db.Model):
     part = relationship('Part', back_populates='journals', lazy=True)
     
     def __init__(self, title: str, system_id: str, content: str = "", 
-                 part_id: Optional[str] = None):
+                 part_id: Optional[str] = None, journal_metadata: str = ""):
         """Initialize a journal entry.
         
         Args:
@@ -35,11 +36,13 @@ class Journal(db.Model):
             system_id: UUID of the system this journal belongs to.
             content: Content of the journal entry.
             part_id: Optional UUID of the part this journal is associated with.
+            journal_metadata: Optional JSON string with additional data (emotions, parts_present, etc.)
         """
         self.title = title
         self.content = content
         self.part_id = part_id
         self.system_id = system_id
+        self.journal_metadata = journal_metadata
         
     def to_dict(self) -> Dict[str, Any]:
         """Convert journal to dictionary representation.
@@ -52,7 +55,8 @@ class Journal(db.Model):
             "title": self.title,
             "content": self.content,
             "date": self.date.isoformat() if self.date else None,
-            "part_id": str(self.part_id) if self.part_id else None
+            "part_id": str(self.part_id) if self.part_id else None,
+            "metadata": self.journal_metadata  # Keep API response field name as "metadata" for consistency
         }
     
     def __repr__(self) -> str:

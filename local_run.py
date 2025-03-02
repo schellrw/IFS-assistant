@@ -1,16 +1,19 @@
 #!/usr/bin/env python
 """
-Run the IFS Assistant application locally with SQLite database.
-This script overrides the database configuration to use a local SQLite database.
+Run the IFS Assistant application locally with database configuration from .env file.
 """
 import os
 import sys
+from dotenv import load_dotenv
 
-# Set environment variables
-os.environ['DATABASE_URL'] = 'sqlite:///./ifs_app.db'
-os.environ['FLASK_APP'] = 'backend.app'
-os.environ['FLASK_ENV'] = 'development'
-os.environ['FLASK_DEBUG'] = '1'
+# Load environment variables from .env file
+load_dotenv()
+
+# Set development environment variables if not already set
+if not os.environ.get('FLASK_APP'):
+    os.environ['FLASK_APP'] = 'backend.app'
+if not os.environ.get('FLASK_DEBUG'):
+    os.environ['FLASK_DEBUG'] = '1'
 
 try:
     from backend.app import create_app

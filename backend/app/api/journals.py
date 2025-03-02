@@ -18,6 +18,7 @@ class JournalSchema(Schema):
     title = fields.String(required=True, validate=validate.Length(min=1, max=200))
     content = fields.String(allow_none=True)
     part_id = fields.String(allow_none=True)
+    metadata = fields.String(allow_none=True)  # Keep as metadata in API schema for consistency
 
 @journals_bp.route('/journals', methods=['GET'])
 @jwt_required()
@@ -77,7 +78,8 @@ def create_journal():
             title=data.get('title', 'Untitled Journal'),
             content=data.get('content', ''),
             part_id=part_id,
-            system_id=str(system.id)
+            system_id=str(system.id),
+            journal_metadata=data.get('metadata', '')  # Use journal_metadata in model
         )
         
         db.session.add(journal)
@@ -162,6 +164,8 @@ def update_journal(journal_id):
                     logger.warning(f"Part {part_id} not found")
                     return jsonify({"error": f"Part {part_id} not found"}), 404
             journal.part_id = part_id
+        if 'metadata' in data:
+            journal.journal_metadata = data['metadata']  # Use journal_metadata in model
         
         db.session.commit()
         
