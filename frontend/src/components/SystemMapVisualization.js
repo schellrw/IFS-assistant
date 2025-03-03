@@ -742,7 +742,9 @@ const SystemMapVisualization = ({
           <Button
             size="small"
             variant="outlined"
-            onClick={() => navigate(`/parts/${tooltip.part.id}?backLink=system-map`)}
+            onClick={() => navigate(`/parts/${tooltip.part.id}`, { 
+              state: { from: 'system-map' }
+            })}
             sx={{ width: '100%' }}
           >
             View Details

@@ -60,7 +60,7 @@ const PartsView = () => {
                 <CardActions>
                   <Button 
                     size="small" 
-                    onClick={() => navigate(`/parts/${part.id}`)}
+                    onClick={() => navigate(`/parts/${part.id}`, { state: { from: 'parts' } })}
                   >
                     View Details
                   </Button>

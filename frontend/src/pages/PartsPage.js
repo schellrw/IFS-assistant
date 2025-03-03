@@ -157,7 +157,7 @@ const PartsPage = () => {
                               </Box>
                               <Box 
                                 sx={{ flexGrow: 1 }}
-                                onClick={() => navigate(`/parts/${part.id}`)}
+                                onClick={() => navigate(`/parts/${part.id}`, { state: { from: 'parts' } })}
                               >
                                 <Typography variant="h6">{part.name}</Typography>
                                 <Typography color="textSecondary">
