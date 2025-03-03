@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Toolbar,
@@ -23,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 
 const Navigation = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [anchorEl, setAnchorEl] = React.useState(null);
@@ -54,6 +55,23 @@ const Navigation = () => {
   };
   
   const isActive = (path) => location.pathname === path;
+  
+  // Handle navigation with prompt preservation
+  const handleNavigation = (path) => {
+    if (path === '/journal') {
+      // Get the current prompt from localStorage
+      const currentPrompt = localStorage.getItem('currentJournalPrompt');
+      navigate(path, { state: { selectedPrompt: currentPrompt } });
+      if (anchorEl) {
+        handleMenuClose();
+      }
+    } else {
+      navigate(path);
+      if (anchorEl) {
+        handleMenuClose();
+      }
+    }
+  };
   
   const navItems = currentUser ? [
     { label: 'Dashboard', path: '/' },
@@ -102,9 +120,7 @@ const Navigation = () => {
                     {navItems.map((item) => (
                       <MenuItem
                         key={item.path}
-                        component={RouterLink}
-                        to={item.path}
-                        onClick={handleMenuClose}
+                        onClick={() => handleNavigation(item.path)}
                         selected={isActive(item.path)}
                       >
                         {item.label}
@@ -121,8 +137,7 @@ const Navigation = () => {
                     {navItems.map((item) => (
                       <Button
                         key={item.path}
-                        component={RouterLink}
-                        to={item.path}
+                        onClick={() => handleNavigation(item.path)}
                         sx={{
                           mx: 1,
                           color: 'white',

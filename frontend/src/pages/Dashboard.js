@@ -40,12 +40,21 @@ const Dashboard = () => {
 
   // Refresh the reflective prompt
   const refreshPrompt = () => {
-    setCurrentPrompt(getRandomPrompt());
+    const newPrompt = getRandomPrompt();
+    setCurrentPrompt(newPrompt);
+    localStorage.setItem('currentJournalPrompt', newPrompt);
   };
 
-  // Initialize a random prompt on component mount
+  // Initialize prompt on component mount - either from localStorage or a new random one
   useEffect(() => {
-    setCurrentPrompt(getRandomPrompt());
+    const savedPrompt = localStorage.getItem('currentJournalPrompt');
+    if (savedPrompt && REFLECTIVE_PROMPTS.includes(savedPrompt)) {
+      setCurrentPrompt(savedPrompt);
+    } else {
+      const newPrompt = getRandomPrompt();
+      setCurrentPrompt(newPrompt);
+      localStorage.setItem('currentJournalPrompt', newPrompt);
+    }
   }, []);
 
   useEffect(() => {
@@ -181,7 +190,9 @@ const Dashboard = () => {
           type: 'journal',
           title: 'Start Your Journal',
           description: 'Journaling helps track your progress and insights. Try writing your first entry.',
-          action: () => navigate('/journal')
+          action: () => navigate('/journal', { 
+            state: { selectedPrompt: currentPrompt } 
+          })
         });
       } else if (daysSinceLastJournal > 3) {
         newRecommendations.push({
@@ -189,7 +200,9 @@ const Dashboard = () => {
           type: 'journal',
           title: 'Time for a Journal Check-in',
           description: `It's been ${daysSinceLastJournal} days since your last journal entry. Consider checking in with how you're feeling today.`,
-          action: () => navigate('/journal')
+          action: () => navigate('/journal', { 
+            state: { selectedPrompt: currentPrompt } 
+          })
         });
       }
       
@@ -258,7 +271,12 @@ const Dashboard = () => {
 
   const handleActivityClick = (type, id) => {
     if (type === 'journal') {
-      navigate('/journal', { state: { highlightId: id } });
+      navigate('/journal', { 
+        state: { 
+          highlightId: id,
+          selectedPrompt: currentPrompt 
+        } 
+      });
     } else if (type === 'part_created' || type === 'part_updated') {
       navigate(`/parts/${id}`);
     } else if (type === 'relationship') {
@@ -358,7 +376,9 @@ const Dashboard = () => {
                     <Button 
                       variant="outlined" 
                       size="small" 
-                      onClick={() => navigate('/journal')}
+                      onClick={() => navigate('/journal', { 
+                        state: { selectedPrompt: currentPrompt } 
+                      })}
                     >
                       Write Journal Entry
                     </Button>

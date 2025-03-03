@@ -20,29 +20,49 @@ const JournalPage = () => {
   const [selectedParts, setSelectedParts] = useState([]);
   const [currentPrompt, setCurrentPrompt] = useState(REFLECTIVE_PROMPTS[0]);
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
+  const [autoRotateEnabled, setAutoRotateEnabled] = useState(true);
 
   useEffect(() => {
-    // If a prompt was passed from the Dashboard, use it
+    // Priority for prompt selection:
+    // 1. Prompt passed from Navigation (location.state.selectedPrompt)
+    // 2. Prompt stored in localStorage
+    // 3. Default to first prompt
+    
     if (location.state?.selectedPrompt) {
+      // If prompt was passed from navigation, use it and save to localStorage
       setCurrentPrompt(location.state.selectedPrompt);
+      localStorage.setItem('currentJournalPrompt', location.state.selectedPrompt);
+      setAutoRotateEnabled(false); // Disable auto-rotation when prompt is explicitly selected
+    } else {
+      // If no prompt in navigation state, try localStorage
+      const savedPrompt = localStorage.getItem('currentJournalPrompt');
+      if (savedPrompt && REFLECTIVE_PROMPTS.includes(savedPrompt)) {
+        setCurrentPrompt(savedPrompt);
+      } else {
+        // If no saved prompt, use the first one and save it
+        setCurrentPrompt(REFLECTIVE_PROMPTS[0]);
+        localStorage.setItem('currentJournalPrompt', REFLECTIVE_PROMPTS[0]);
+      }
     }
     
-    // Rotate prompts every 30 seconds, but only if not passed from Dashboard
+    // Rotate prompts every 5 minutes, but only if auto-rotation is enabled
     const interval = setInterval(() => {
-      if (!location.state?.selectedPrompt) {
+      if (autoRotateEnabled) {
         setCurrentPrompt(prev => {
           const currentIndex = REFLECTIVE_PROMPTS.indexOf(prev);
           const nextIndex = (currentIndex + 1) % REFLECTIVE_PROMPTS.length;
-          return REFLECTIVE_PROMPTS[nextIndex];
+          const newPrompt = REFLECTIVE_PROMPTS[nextIndex];
+          localStorage.setItem('currentJournalPrompt', newPrompt);
+          return newPrompt;
         });
       }
-    }, 30000);
+    }, 300000); // 5 minutes instead of 30 seconds
 
     // Fetch journals on component mount
     getJournals();
 
     return () => clearInterval(interval);
-  }, [getJournals, location.state]);
+  }, [getJournals, location.state, autoRotateEnabled]);
 
   const handleSave = async () => {
     try {
