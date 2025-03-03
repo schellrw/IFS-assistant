@@ -7,9 +7,19 @@ import {
   Accordion, AccordionSummary, AccordionDetails, Chip
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { EmotionPicker, PartSelector, ReflectivePrompt } from '../components';
+import { EmotionPicker, PartSelector, JournalPrompt } from '../components';
 import { format } from 'date-fns';
 import { REFLECTIVE_PROMPTS, COMMON_EMOTIONS } from '../constants';
+
+// Simple function to get a random prompt that is not the current one
+const getNewUniquePrompt = (currentPrompt) => {
+  // Filter out the current prompt
+  const otherPrompts = REFLECTIVE_PROMPTS.filter(p => p !== currentPrompt);
+  
+  // Get a random prompt from the filtered list
+  const randomIndex = Math.floor(Math.random() * otherPrompts.length);
+  return otherPrompts[randomIndex];
+};
 
 const JournalPage = () => {
   const { system, loading, error, addJournal, getJournals, journals } = useIFS();
@@ -18,51 +28,42 @@ const JournalPage = () => {
   const [title, setTitle] = useState('');
   const [selectedEmotions, setSelectedEmotions] = useState([]);
   const [selectedParts, setSelectedParts] = useState([]);
-  const [currentPrompt, setCurrentPrompt] = useState(REFLECTIVE_PROMPTS[0]);
+  
+  // We still track the initial prompt from location state or localStorage
+  const [initialPrompt, setInitialPrompt] = useState('');
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
-  const [autoRotateEnabled, setAutoRotateEnabled] = useState(true);
-
+  
+  // Initialize the initial prompt only once on component mount
   useEffect(() => {
-    // Priority for prompt selection:
-    // 1. Prompt passed from Navigation (location.state.selectedPrompt)
-    // 2. Prompt stored in localStorage
-    // 3. Default to first prompt
+    let prompt;
     
+    // First check for prompt from navigation state
     if (location.state?.selectedPrompt) {
-      // If prompt was passed from navigation, use it and save to localStorage
-      setCurrentPrompt(location.state.selectedPrompt);
-      localStorage.setItem('currentJournalPrompt', location.state.selectedPrompt);
-      setAutoRotateEnabled(false); // Disable auto-rotation when prompt is explicitly selected
-    } else {
-      // If no prompt in navigation state, try localStorage
+      console.log('Journal Page: Using prompt from navigation:', location.state.selectedPrompt);
+      prompt = location.state.selectedPrompt;
+    } 
+    // Otherwise check localStorage
+    else {
       const savedPrompt = localStorage.getItem('currentJournalPrompt');
       if (savedPrompt && REFLECTIVE_PROMPTS.includes(savedPrompt)) {
-        setCurrentPrompt(savedPrompt);
+        console.log('Journal Page: Using saved prompt from localStorage:', savedPrompt);
+        prompt = savedPrompt;
       } else {
-        // If no saved prompt, use the first one and save it
-        setCurrentPrompt(REFLECTIVE_PROMPTS[0]);
-        localStorage.setItem('currentJournalPrompt', REFLECTIVE_PROMPTS[0]);
+        // Fallback to random prompt
+        const randomPrompt = REFLECTIVE_PROMPTS[Math.floor(Math.random() * REFLECTIVE_PROMPTS.length)];
+        console.log('Journal Page: Using random prompt:', randomPrompt);
+        prompt = randomPrompt;
+        localStorage.setItem('currentJournalPrompt', randomPrompt);
       }
     }
     
-    // Rotate prompts every 5 minutes, but only if auto-rotation is enabled
-    const interval = setInterval(() => {
-      if (autoRotateEnabled) {
-        setCurrentPrompt(prev => {
-          const currentIndex = REFLECTIVE_PROMPTS.indexOf(prev);
-          const nextIndex = (currentIndex + 1) % REFLECTIVE_PROMPTS.length;
-          const newPrompt = REFLECTIVE_PROMPTS[nextIndex];
-          localStorage.setItem('currentJournalPrompt', newPrompt);
-          return newPrompt;
-        });
-      }
-    }, 300000); // 5 minutes instead of 30 seconds
-
-    // Fetch journals on component mount
-    getJournals();
-
-    return () => clearInterval(interval);
-  }, [getJournals, location.state, autoRotateEnabled]);
+    setInitialPrompt(prompt);
+    
+    // Load journals
+    getJournals().catch(err => {
+      console.log('Error fetching journals, might need authentication:', err);
+    });
+  }, [location.state, getJournals]);
 
   const handleSave = async () => {
     try {
@@ -154,8 +155,8 @@ const JournalPage = () => {
         </Typography>
 
         <Stack spacing={3}>
-          {/* Reflective Prompt */}
-          <ReflectivePrompt text={currentPrompt} />
+          {/* Use our new self-contained JournalPrompt component */}
+          {initialPrompt && <JournalPrompt initialPrompt={initialPrompt} />}
 
           {/* Title Field */}
           <Paper sx={{ p: 2 }}>

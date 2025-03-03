@@ -5,6 +5,7 @@ export { InputField, TextArea, RoleSelector, FeelingsInput, ListInput } from './
 export { EmotionPicker } from './EmotionPicker';
 export { PartSelector } from './PartSelector';
 export { ReflectivePrompt } from './ReflectivePrompt';
+export { JournalPrompt } from './JournalPrompt';
 export { default as ProtectedRoute } from './ProtectedRoute';
 export { default as PartsDistributionChart } from './PartsDistributionChart';
 export { default as EmotionsChart } from './EmotionsChart';
