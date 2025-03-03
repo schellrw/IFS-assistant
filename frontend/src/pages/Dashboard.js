@@ -13,9 +13,13 @@ import EmojiPeopleIcon from '@mui/icons-material/EmojiPeople';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import DonutLargeIcon from '@mui/icons-material/DonutLarge';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import { format, formatDistanceToNow, differenceInDays } from 'date-fns';
 import { useIFS } from '../context/IFSContext';
 import { REFLECTIVE_PROMPTS } from '../constants';
+import { PartsDistributionChart, EmotionsChart, MiniSystemMap } from '../components';
 import axios from 'axios';
 
 // Configure API base URL - can be changed via environment variable later
@@ -40,12 +44,21 @@ const Dashboard = () => {
 
   // Refresh the reflective prompt
   const refreshPrompt = () => {
-    setCurrentPrompt(getRandomPrompt());
+    const newPrompt = getRandomPrompt();
+    setCurrentPrompt(newPrompt);
+    localStorage.setItem('currentJournalPrompt', newPrompt);
   };
 
-  // Initialize a random prompt on component mount
+  // Initialize prompt on component mount - either from localStorage or a new random one
   useEffect(() => {
-    setCurrentPrompt(getRandomPrompt());
+    const savedPrompt = localStorage.getItem('currentJournalPrompt');
+    if (savedPrompt && REFLECTIVE_PROMPTS.includes(savedPrompt)) {
+      setCurrentPrompt(savedPrompt);
+    } else {
+      const newPrompt = getRandomPrompt();
+      setCurrentPrompt(newPrompt);
+      localStorage.setItem('currentJournalPrompt', newPrompt);
+    }
   }, []);
 
   useEffect(() => {
@@ -181,7 +194,9 @@ const Dashboard = () => {
           type: 'journal',
           title: 'Start Your Journal',
           description: 'Journaling helps track your progress and insights. Try writing your first entry.',
-          action: () => navigate('/journal')
+          action: () => navigate('/journal', { 
+            state: { selectedPrompt: currentPrompt } 
+          })
         });
       } else if (daysSinceLastJournal > 3) {
         newRecommendations.push({
@@ -189,7 +204,9 @@ const Dashboard = () => {
           type: 'journal',
           title: 'Time for a Journal Check-in',
           description: `It's been ${daysSinceLastJournal} days since your last journal entry. Consider checking in with how you're feeling today.`,
-          action: () => navigate('/journal')
+          action: () => navigate('/journal', { 
+            state: { selectedPrompt: currentPrompt } 
+          })
         });
       }
       
@@ -244,7 +261,7 @@ const Dashboard = () => {
           type: 'part_checkin',
           title: `Check in with "${partToCheckIn.name}"`,
           description: `It might be a good time to check in with your "${partToCheckIn.name}" part and see how it's doing.`,
-          action: () => navigate(`/parts/${partToCheckIn.id}`)
+          action: () => navigate(`/parts/${partToCheckIn.id}`, { state: { from: 'dashboard' } })
         });
       }
       
@@ -258,9 +275,14 @@ const Dashboard = () => {
 
   const handleActivityClick = (type, id) => {
     if (type === 'journal') {
-      navigate('/journal', { state: { highlightId: id } });
+      navigate('/journal', { 
+        state: { 
+          highlightId: id,
+          selectedPrompt: currentPrompt 
+        } 
+      });
     } else if (type === 'part_created' || type === 'part_updated') {
-      navigate(`/parts/${id}`);
+      navigate(`/parts/${id}`, { state: { from: 'dashboard' } });
     } else if (type === 'relationship') {
       navigate('/system-map');
     }
@@ -325,7 +347,7 @@ const Dashboard = () => {
         
         <Grid container spacing={3}>
           {/* System Overview */}
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <Paper sx={{ p: 2, height: '100%' }}>
               <Typography variant="h6" gutterBottom>System Overview</Typography>
               
@@ -358,7 +380,9 @@ const Dashboard = () => {
                     <Button 
                       variant="outlined" 
                       size="small" 
-                      onClick={() => navigate('/journal')}
+                      onClick={() => navigate('/journal', { 
+                        state: { selectedPrompt: currentPrompt } 
+                      })}
                     >
                       Write Journal Entry
                     </Button>
@@ -376,23 +400,23 @@ const Dashboard = () => {
           </Grid>
           
           {/* Recent Activity */}
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <Paper sx={{ p: 2, height: '100%' }}>
               <Typography variant="h6" gutterBottom>Recent Activity</Typography>
               
-              {loadingActivity || ifsLoading ? (
+              {loadingActivity ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
                   <CircularProgress size={24} />
                 </Box>
               ) : recentActivity.length > 0 ? (
-                <List dense sx={{ maxHeight: '400px', overflow: 'auto' }}>
+                <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
                   {recentActivity.map((activity, index) => (
                     <React.Fragment key={activity.id}>
                       {index > 0 && <Divider variant="inset" component="li" />}
                       <ListItem 
-                        button 
-                        onClick={() => handleActivityClick(activity.type, activity.associatedId)}
                         alignItems="flex-start"
+                        onClick={() => handleActivityClick(activity.type, activity.associatedId)}
+                        sx={{ cursor: 'pointer' }}
                       >
                         <ListItemIcon>
                           {getActivityIcon(activity.type)}
@@ -442,104 +466,175 @@ const Dashboard = () => {
           </Grid>
           
           {/* Recommendations */}
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom>
-              Recommended Next Steps
-            </Typography>
-            <Grid container spacing={2}>
+          <Grid item xs={12} md={4}>
+            <Paper sx={{ p: 2, height: '100%' }}>
+              <Typography variant="h6" gutterBottom>
+                Personalized Recommendations
+              </Typography>
+              
               {ifsLoading ? (
-                <Grid item xs={12}>
-                  <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                    <CircularProgress size={24} />
-                  </Box>
-                </Grid>
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                  <CircularProgress size={24} />
+                </Box>
               ) : recommendations.length > 0 ? (
-                recommendations.map(rec => (
-                  <Grid item xs={12} md={4} key={rec.id}>
-                    <Card>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                          <Box sx={{ mr: 1 }}>
-                            {getRecommendationIcon(rec.type)}
+                <Box>
+                  {recommendations.map(recommendation => (
+                    <Card key={recommendation.id} sx={{ mb: 2 }}>
+                      <CardContent sx={{ pb: 0 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1 }}>
+                          <Box sx={{ mr: 1, pt: 0.5 }}>
+                            {getRecommendationIcon(recommendation.type)}
                           </Box>
-                          <Typography variant="h6" component="div">
-                            {rec.title}
-                          </Typography>
+                          <Box>
+                            <Typography variant="h6" component="div">
+                              {recommendation.title}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {recommendation.description}
+                            </Typography>
+                          </Box>
                         </Box>
-                        <Typography variant="body2" color="text.secondary">
-                          {rec.description}
-                        </Typography>
                       </CardContent>
                       <CardActions>
                         <Button 
                           size="small" 
-                          endIcon={<NavigateNextIcon />} 
-                          onClick={rec.action}
+                          endIcon={<NavigateNextIcon />}
+                          onClick={recommendation.action}
                         >
-                          Let's Go
+                          Get Started
                         </Button>
                       </CardActions>
                     </Card>
-                  </Grid>
-                ))
+                  ))}
+                </Box>
               ) : (
-                <Grid item xs={12}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography color="text.secondary" align="center">
-                      Great job! You've been making good progress with your IFS system.
-                    </Typography>
-                  </Paper>
-                </Grid>
+                <Typography color="text.secondary" align="center">
+                  No recommendations at this time.
+                </Typography>
               )}
-            </Grid>
+            </Paper>
           </Grid>
           
-          {/* Reflective Prompt */}
+          {/* Second row: Visualizations */}
           <Grid item xs={12}>
-            <Paper 
-              sx={{ 
-                p: 3, 
-                mt: 2,
-                backgroundColor: 'primary.light', 
-                color: 'primary.contrastText',
-                position: 'relative'
-              }}
-            >
+            <Paper sx={{ p: 2, mb: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" gutterBottom sx={{ mb: 0 }}>
+                  System Visualizations
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => navigate('/system-map')}
+                  startIcon={<AccountTreeIcon />}
+                >
+                  Full System Map
+                </Button>
+              </Box>
+              
+              {ifsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                  <CircularProgress />
+                </Box>
+              ) : system && Object.keys(system.parts).length > 0 ? (
+                <Grid container spacing={3}>
+                  {/* Parts Distribution Chart */}
+                  <Grid item xs={12} md={4}>
+                    <Paper elevation={2} sx={{ p: 2, height: '100%' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <DonutLargeIcon color="primary" sx={{ mr: 1 }} />
+                        <Typography variant="subtitle1">Parts by Role</Typography>
+                      </Box>
+                      <PartsDistributionChart 
+                        parts={system ? Object.values(system.parts) : []} 
+                        height={220} 
+                      />
+                    </Paper>
+                  </Grid>
+                  
+                  {/* Emotions Chart */}
+                  <Grid item xs={12} md={4}>
+                    <Paper elevation={2} sx={{ p: 2, height: '100%' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <BarChartIcon color="primary" sx={{ mr: 1 }} />
+                        <Typography variant="subtitle1">Emotions Across Parts</Typography>
+                      </Box>
+                      <EmotionsChart 
+                        parts={system ? Object.values(system.parts) : []} 
+                        height={220} 
+                      />
+                    </Paper>
+                  </Grid>
+                  
+                  {/* Mini System Map */}
+                  <Grid item xs={12} md={4}>
+                    <Paper elevation={2} sx={{ p: 2, height: '100%' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <AccountTreeIcon color="primary" sx={{ mr: 1 }} />
+                        <Typography variant="subtitle1">Mini System Map</Typography>
+                      </Box>
+                      <MiniSystemMap 
+                        parts={system ? Object.values(system.parts) : []}
+                        relationships={system ? Object.values(system.relationships) : []}
+                        height={220}
+                        maxNodes={8}
+                      />
+                    </Paper>
+                  </Grid>
+                </Grid>
+              ) : (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography color="text.secondary" paragraph>
+                    Add parts to your system to see visualizations
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    onClick={() => navigate('/parts/new')}
+                  >
+                    Add Your First Part
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          </Grid>
+
+          {/* Reflection for Today */}
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3, borderRadius: 2, bgcolor: 'primary.main', color: 'white' }}>
               <Typography variant="h6" gutterBottom>
-                Reflection For Today
+                Reflection for Today
               </Typography>
               <Typography variant="body1" sx={{ fontStyle: 'italic', maxWidth: '80%' }}>
-                "{currentPrompt}"
+                {currentPrompt}
               </Typography>
-              <Tooltip title="Get a different prompt">
-                <IconButton 
+              <Box sx={{ display: 'flex', mt: 2 }}>
+                <Button 
+                  variant="text" 
+                  color="inherit" 
+                  size="small"
                   onClick={refreshPrompt}
-                  sx={{ 
-                    position: 'absolute', 
-                    top: 8, 
-                    right: 8,
-                    color: 'primary.contrastText' 
-                  }}
+                  sx={{ mr: 2 }}
+                  startIcon={<RefreshIcon />}
                 >
-                  <RefreshIcon />
-                </IconButton>
-              </Tooltip>
-              <Button 
-                variant="contained" 
-                sx={{ 
-                  mt: 2, 
-                  backgroundColor: 'white', 
-                  color: 'primary.main',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255,255,255,0.9)',
-                  }
-                }}
-                onClick={() => navigate('/journal', { 
-                  state: { selectedPrompt: currentPrompt } 
-                })}
-              >
-                Journal About This
-              </Button>
+                  New Prompt
+                </Button>
+                <Button 
+                  variant="contained" 
+                  sx={{ 
+                    mt: 2, 
+                    backgroundColor: 'white', 
+                    color: 'primary.main',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255,255,255,0.9)',
+                    }
+                  }}
+                  onClick={() => navigate('/journal', { 
+                    state: { selectedPrompt: currentPrompt } 
+                  })}
+                >
+                  Journal About This
+                </Button>
+              </Box>
             </Paper>
           </Grid>
         </Grid>

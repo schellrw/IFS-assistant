@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
 import {
   Container,
@@ -32,6 +32,7 @@ const PartDetailsPage = () => {
   const { partId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { system, updatePart, deletePart } = useIFS();
   const [isEditing, setIsEditing] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
@@ -42,13 +43,29 @@ const PartDetailsPage = () => {
 
   // Get the backLink from URL params
   const backLink = searchParams.get('backLink');
+  
+  // Get the navigation source from location state (if it exists)
+  const navigationSource = location.state?.from;
 
   // Update the back button
   const handleBack = () => {
-    if (backLink === 'system-map') {
+    if (navigationSource === 'dashboard') {
+      navigate('/'); // Root path is the Dashboard
+    } else if (navigationSource === 'system-map' || backLink === 'system-map') {
       navigate('/system-map');
     } else {
       navigate('/parts');
+    }
+  };
+
+  // Determine the button text based on navigation source or backLink parameter
+  const getBackButtonText = () => {
+    if (navigationSource === 'dashboard') {
+      return 'Back to Dashboard';
+    } else if (navigationSource === 'system-map' || backLink === 'system-map') {
+      return 'Back to System Map';
+    } else {
+      return 'Back to Parts';
     }
   };
 
@@ -81,7 +98,13 @@ const PartDetailsPage = () => {
   const handleDelete = async () => {
     try {
       await deletePart(partId);
-      navigate('/parts');
+      if (navigationSource === 'dashboard') {
+        navigate('/'); // Root path is the Dashboard
+      } else if (navigationSource === 'system-map') {
+        navigate('/system-map');
+      } else {
+        navigate('/parts');
+      }
     } catch (err) {
       setError('Failed to delete part');
       console.error('Error deleting part:', err);
@@ -96,7 +119,7 @@ const PartDetailsPage = () => {
           onClick={handleBack}
           sx={{ mb: 2 }}
         >
-          {backLink === 'system-map' ? 'Back to System Map' : 'Back to Parts'}
+          {getBackButtonText()}
         </Button>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
