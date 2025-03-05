@@ -14,5 +14,7 @@ from .system import IFSSystem
 from .part import Part
 from .relationship import Relationship
 from .journal import Journal
+from .conversation import PartConversation, ConversationMessage, PartPersonalityVector
 
-__all__ = ['db', 'migrate', 'User', 'Part', 'Relationship', 'Journal', 'IFSSystem'] 
+__all__ = ['db', 'migrate', 'User', 'Part', 'Relationship', 'Journal', 'IFSSystem',
+           'PartConversation', 'ConversationMessage', 'PartPersonalityVector'] 

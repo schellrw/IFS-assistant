@@ -35,6 +35,10 @@ class Part(db.Model):
     # Set up relationships for easier querying
     journals = relationship('Journal', back_populates='part', lazy=True)
     
+    # Conversation relationships
+    conversations = relationship('PartConversation', back_populates='part', lazy=True,
+                               cascade='all, delete-orphan')
+    
     # Relationship to other parts (defined via Relationship model)
     source_relationships = relationship(
         'Relationship', 
