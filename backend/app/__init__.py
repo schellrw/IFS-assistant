@@ -6,6 +6,10 @@ from typing import Optional, Dict, Any
 import logging
 from logging.config import dictConfig
 
+# Add dotenv loading at the top level
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager

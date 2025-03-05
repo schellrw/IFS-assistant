@@ -6,6 +6,7 @@ from uuid import uuid4
 from typing import Dict, Any, List, Optional
 
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func
+from sqlalchemy.sql import func as sql_func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 

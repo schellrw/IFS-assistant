@@ -11,8 +11,21 @@ from marshmallow import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..models import db, Part, PartConversation, ConversationMessage, PartPersonalityVector, User
-from ..utils.embeddings import embedding_manager
-from ..utils.llm_service import llm_service
+
+# Try importing the util services
+try:
+    from ..utils.embeddings import embedding_manager
+    EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    EMBEDDINGS_AVAILABLE = False
+    print("Warning: Embedding manager not available, vector operations will be disabled")
+
+try:
+    from ..utils.llm_service import llm_service
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+    print("Warning: LLM service not available, part conversations will be limited")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -182,12 +195,13 @@ def add_message(conversation_id):
             content=user_message
         )
         
-        # Generate an embedding for the message
-        try:
-            user_message_obj.embedding = embedding_manager.generate_embedding(user_message)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding for message: {e}")
-            # Continue without embedding if it fails
+        # Generate an embedding for the message if available
+        if EMBEDDINGS_AVAILABLE:
+            try:
+                user_message_obj.embedding = embedding_manager.generate_embedding(user_message)
+            except Exception as e:
+                logger.warning(f"Failed to generate embedding for message: {e}")
+                # Continue without embedding if it fails
         
         # Add to database
         db.session.add(user_message_obj)
@@ -198,12 +212,18 @@ def add_message(conversation_id):
             ConversationMessage.timestamp.desc()).limit(10).all()]
         history.reverse()  # Oldest first
         
-        # Generate a response from the part
-        part_response = llm_service.chat_with_part(
-            part.to_dict(),
-            conversation_history=history,
-            user_message=user_message
-        )
+        # If LLM service is available, generate a response from the part
+        part_response = "I cannot respond right now. The chat service is unavailable."
+        if LLM_AVAILABLE:
+            try:
+                part_response = llm_service.chat_with_part(
+                    part.to_dict(),
+                    conversation_history=history,
+                    user_message=user_message
+                )
+            except Exception as e:
+                logger.error(f"Error generating part response: {e}")
+                part_response = f"I'm sorry, I couldn't process your message: {str(e)}"
         
         # Create a new message from the part
         part_message = ConversationMessage(
@@ -212,12 +232,13 @@ def add_message(conversation_id):
             content=part_response
         )
         
-        # Generate an embedding for the part's response
-        try:
-            part_message.embedding = embedding_manager.generate_embedding(part_response)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding for part response: {e}")
-            # Continue without embedding if it fails
+        # Generate an embedding for the part's response if available
+        if EMBEDDINGS_AVAILABLE:
+            try:
+                part_message.embedding = embedding_manager.generate_embedding(part_response)
+            except Exception as e:
+                logger.warning(f"Failed to generate embedding for part response: {e}")
+                # Continue without embedding if it fails
         
         # Add to database
         db.session.add(part_message)
@@ -247,6 +268,10 @@ def generate_personality_vectors(part_id):
         JSON response with the created vectors.
     """
     try:
+        # Check if embedding service is available
+        if not EMBEDDINGS_AVAILABLE:
+            return jsonify({"error": "Embedding service is not available"}), 500
+        
         # Get the current user
         current_user_id = get_jwt_identity()
         

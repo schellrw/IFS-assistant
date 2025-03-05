@@ -5,9 +5,22 @@ import os
 import logging
 from typing import List, Dict, Any, Union, Optional
 import json
-import numpy as np
 
-from sentence_transformers import SentenceTransformer
+# Conditionally import numpy, which may not be available during migrations
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    print("Warning: numpy not available, vector operations will be limited")
+
+# Conditionally import sentence-transformers
+try:
+    from sentence_transformers import SentenceTransformer
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    print("Warning: sentence-transformers not available, embedding generation will be disabled")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,12 +40,16 @@ class EmbeddingManager:
         self.embedding_dim = 384  # Default for all-MiniLM-L6-v2
     
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self) -> Any:
         """Lazy-loaded sentence transformer model.
         
         Returns:
             The sentence transformer model.
         """
+        if not TRANSFORMERS_AVAILABLE:
+            logger.error("sentence-transformers library is not available")
+            return None
+            
         if self._model is None:
             try:
                 self._model = SentenceTransformer(self.model_name)
@@ -51,6 +68,10 @@ class EmbeddingManager:
         Returns:
             The embedding as a list of floats.
         """
+        if not TRANSFORMERS_AVAILABLE:
+            logger.warning("Cannot generate embeddings: sentence-transformers not available")
+            return [0.0] * self.embedding_dim  # Return zero vector
+            
         try:
             embedding = self.model.encode(text)
             return embedding.tolist()
@@ -67,6 +88,10 @@ class EmbeddingManager:
         Returns:
             List of embeddings, each as a list of floats.
         """
+        if not TRANSFORMERS_AVAILABLE:
+            logger.warning("Cannot generate embeddings: sentence-transformers not available")
+            return [[0.0] * self.embedding_dim for _ in texts]  # Return zero vectors
+            
         try:
             embeddings = self.model.encode(texts)
             return [emb.tolist() for emb in embeddings]
@@ -84,6 +109,10 @@ class EmbeddingManager:
         Returns:
             The cosine similarity between the embeddings.
         """
+        if not NUMPY_AVAILABLE:
+            logger.warning("Cannot compute similarity: numpy not available")
+            return 0.0
+            
         e1 = np.array(embedding1)
         e2 = np.array(embedding2)
         
@@ -99,6 +128,10 @@ class EmbeddingManager:
         Returns:
             The embedding as a list of floats.
         """
+        if not TRANSFORMERS_AVAILABLE:
+            logger.warning("Cannot generate part embedding: sentence-transformers not available")
+            return [0.0] * self.embedding_dim  # Return zero vector
+            
         # Construct a descriptive text from the part's attributes
         text_elements = [
             f"Name: {part.get('name', '')}",
