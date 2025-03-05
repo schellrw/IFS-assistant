@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 class LLMService:
     """Service for interacting with LLMs through the Hugging Face API."""
     
-    def __init__(self, model_name: str = "google/gemma-7b-it"):
+    def __init__(self, model_name: str = "mistralai/Mistral-7B-Instruct-v0.2"):
         """Initialize the LLM service.
         
         Args:
             model_name: The name of the model to use on Hugging Face.
-                Default is "google/gemma-7b-it".
+                Default is "mistralai/Mistral-7B-Instruct-v0.2".
         """
         self.model_name = model_name
         self.api_url = f"https://api-inference.huggingface.co/models/{model_name}"
