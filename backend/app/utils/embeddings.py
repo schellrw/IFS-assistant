@@ -26,18 +26,23 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class EmbeddingManager:
-    """Class for managing text embeddings using sentence-transformers models."""
+    """Manager for generating and working with embeddings using sentence-transformers."""
     
     def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
         """Initialize the embedding manager.
         
         Args:
-            model_name: Name of the sentence-transformers model to use.
-                Default is 'all-MiniLM-L6-v2'.
+            model_name: The name of the sentence-transformers model to use.
+                Default is 'all-MiniLM-L6-v2' which produces 384-dimensional vectors.
         """
         self.model_name = model_name
         self._model = None
-        self.embedding_dim = 384  # Default for all-MiniLM-L6-v2
+        
+        if not TRANSFORMERS_AVAILABLE or not NUMPY_AVAILABLE:
+            logger.warning(
+                "Required dependencies not available. "
+                "Embedding functionality will be limited."
+            )
     
     @property
     def model(self) -> Any:
@@ -60,24 +65,33 @@ class EmbeddingManager:
         return self._model
     
     def generate_embedding(self, text: str) -> List[float]:
-        """Generate an embedding for a single text.
+        """Generate an embedding vector for a text string.
+        
+        This generates a 384-dimensional vector that can be stored in 
+        PostgreSQL using the pgvector extension.
         
         Args:
             text: The text to generate an embedding for.
             
         Returns:
-            The embedding as a list of floats.
+            A list of floats representing the embedding vector.
+            The vector has 384 dimensions when using the default model.
         """
-        if not TRANSFORMERS_AVAILABLE:
-            logger.warning("Cannot generate embeddings: sentence-transformers not available")
-            return [0.0] * self.embedding_dim  # Return zero vector
+        if not text or not isinstance(text, str):
+            logger.warning(f"Invalid text provided for embedding: {text}")
+            # Return a zero vector with correct dimensions if text is invalid
+            return [0.0] * 384
             
         try:
+            # Generate embedding
             embedding = self.model.encode(text)
+            
+            # Convert numpy array to list for JSON serialization and DB storage
             return embedding.tolist()
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
-            raise RuntimeError(f"Error generating embedding: {e}")
+            # Return a zero vector with correct dimensions
+            return [0.0] * 384
     
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts.
@@ -90,7 +104,7 @@ class EmbeddingManager:
         """
         if not TRANSFORMERS_AVAILABLE:
             logger.warning("Cannot generate embeddings: sentence-transformers not available")
-            return [[0.0] * self.embedding_dim for _ in texts]  # Return zero vectors
+            return [[0.0] * 384 for _ in texts]  # Return zero vectors
             
         try:
             embeddings = self.model.encode(texts)
@@ -102,22 +116,47 @@ class EmbeddingManager:
     def compute_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Compute the cosine similarity between two embeddings.
         
+        For pgvector in PostgreSQL, you can use built-in operators instead:
+        - <-> (Euclidean distance) 
+        - <=> (Cosine distance)
+        - <#> (Inner product)
+        
         Args:
-            embedding1: First embedding.
-            embedding2: Second embedding.
+            embedding1: First embedding vector.
+            embedding2: Second embedding vector.
             
         Returns:
-            The cosine similarity between the embeddings.
+            The cosine similarity as a float between -1 and 1.
+            Higher values indicate more similar embeddings.
         """
         if not NUMPY_AVAILABLE:
-            logger.warning("Cannot compute similarity: numpy not available")
+            logger.error("NumPy is required for computing similarity.")
             return 0.0
             
-        e1 = np.array(embedding1)
-        e2 = np.array(embedding2)
-        
-        # Compute cosine similarity
-        return float(np.dot(e1, e2) / (np.linalg.norm(e1) * np.linalg.norm(e2)))
+        try:
+            # Convert lists to numpy arrays if they aren't already
+            if not isinstance(embedding1, np.ndarray):
+                embedding1 = np.array(embedding1)
+            if not isinstance(embedding2, np.ndarray):
+                embedding2 = np.array(embedding2)
+                
+            # Check dimensions
+            if embedding1.shape != embedding2.shape:
+                logger.warning(
+                    f"Embedding dimension mismatch: {embedding1.shape} vs {embedding2.shape}"
+                )
+            
+            # Compute cosine similarity
+            norm1 = np.linalg.norm(embedding1)
+            norm2 = np.linalg.norm(embedding2)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+                
+            return np.dot(embedding1, embedding2) / (norm1 * norm2)
+        except Exception as e:
+            logger.error(f"Error computing similarity: {e}")
+            return 0.0
     
     def get_part_embedding(self, part: Dict[str, Any]) -> List[float]:
         """Generate an embedding for a part based on its attributes.
@@ -130,7 +169,7 @@ class EmbeddingManager:
         """
         if not TRANSFORMERS_AVAILABLE:
             logger.warning("Cannot generate part embedding: sentence-transformers not available")
-            return [0.0] * self.embedding_dim  # Return zero vector
+            return [0.0] * 384  # Return zero vector
             
         # Construct a descriptive text from the part's attributes
         text_elements = [
