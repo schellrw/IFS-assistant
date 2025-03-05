@@ -3,9 +3,20 @@ Service for interacting with LLMs for part conversations.
 """
 import os
 import logging
-import requests
 import json
 from typing import List, Dict, Any, Optional, Tuple
+
+# Load environment variables directly
+from dotenv import load_dotenv
+load_dotenv()
+
+# Conditionally import requests
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    print("Warning: requests library not available, LLM API calls will be disabled")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -53,6 +64,10 @@ class LLMService:
         Returns:
             The generated response.
         """
+        if not REQUESTS_AVAILABLE:
+            logger.warning("Cannot generate LLM response: requests library not available")
+            return "Error: requests library not available for API calls"
+            
         try:
             payload = {
                 "inputs": prompt,
@@ -173,6 +188,10 @@ class LLMService:
         Returns:
             Generated response from the part.
         """
+        if not REQUESTS_AVAILABLE:
+            logger.warning("Cannot chat with part: requests library not available")
+            return "Error: requests library not available for API calls"
+            
         # Create the prompt
         prompt = self.create_part_prompt(part, conversation_history, user_message)
         

@@ -5,7 +5,8 @@ import datetime
 from uuid import uuid4
 from typing import Dict, Any, List, Optional
 
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func, Integer
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, func
+from sqlalchemy.sql import func as sql_func
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, FLOAT
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.mutable import MutableList
