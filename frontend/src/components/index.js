@@ -9,4 +9,5 @@ export { JournalPrompt } from './JournalPrompt';
 export { default as ProtectedRoute } from './ProtectedRoute';
 export { default as PartsDistributionChart } from './PartsDistributionChart';
 export { default as EmotionsChart } from './EmotionsChart';
-export { default as MiniSystemMap } from './MiniSystemMap'; 
+export { default as MiniSystemMap } from './MiniSystemMap';
+export { default as GenerateVectorsButton } from './GenerateVectorsButton'; 

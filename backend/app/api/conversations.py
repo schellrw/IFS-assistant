@@ -10,7 +10,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from marshmallow import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from ..models import db, Part, PartConversation, ConversationMessage, PartPersonalityVector, User
+from ..models import db, Part, PartConversation, ConversationMessage, PartPersonalityVector, User, IFSSystem
 
 # Try importing the util services
 try:
@@ -321,4 +321,261 @@ def generate_personality_vectors(part_id):
             
     except Exception as e:
         logger.error(f"Error in personality vector generation: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@conversations_bp.route('/conversations/search', methods=['GET'])
+@jwt_required()
+def search_conversations():
+    """Search for conversations based on text or semantic similarity.
+    
+    Query Parameters:
+        query: The search query text.
+        part_id: (Optional) Limit search to a specific part.
+        search_type: 'text' for regular text search, 'semantic' for vector search (default: 'text').
+        limit: Maximum number of results to return (default: 10).
+        
+    Returns:
+        JSON response with matching conversations.
+    """
+    try:
+        # Get the current user
+        current_user_id = get_jwt_identity()
+        
+        # Get query parameters
+        query = request.args.get('query', '')
+        part_id = request.args.get('part_id')
+        search_type = request.args.get('search_type', 'text')
+        limit = int(request.args.get('limit', 10))
+        
+        if not query:
+            return jsonify({"error": "Search query is required"}), 400
+        
+        # Base query to get conversations the user has access to
+        base_query = db.session.query(PartConversation).\
+            join(Part, Part.id == PartConversation.part_id).\
+            join(IFSSystem, IFSSystem.id == Part.system_id).\
+            filter(IFSSystem.user_id == current_user_id)
+        
+        # Filter by part if specified
+        if part_id:
+            try:
+                uuid_part_id = UUID(part_id)
+                base_query = base_query.filter(PartConversation.part_id == uuid_part_id)
+            except ValueError:
+                return jsonify({"error": "Invalid part ID format"}), 400
+        
+        # Perform the search based on search type
+        if search_type == 'semantic' and EMBEDDINGS_AVAILABLE:
+            # Generate embedding for the query
+            try:
+                query_embedding = embedding_manager.generate_embedding(query)
+                
+                # Get conversations with messages that match the query semantically
+                # This uses a subquery to find the most similar message in each conversation
+                from sqlalchemy import func, text
+                from sqlalchemy.sql import select
+                
+                # SQL for finding conversations with semantically similar messages
+                sql = text("""
+                    WITH ranked_messages AS (
+                        SELECT 
+                            cm.conversation_id,
+                            cm.content,
+                            cm.embedding <-> :query_embedding AS distance,
+                            ROW_NUMBER() OVER (PARTITION BY cm.conversation_id ORDER BY cm.embedding <-> :query_embedding ASC) as rank
+                        FROM 
+                            conversation_messages cm
+                        JOIN 
+                            part_conversations pc ON cm.conversation_id = pc.id
+                        JOIN 
+                            parts p ON pc.part_id = p.id
+                        JOIN 
+                            ifs_systems s ON p.system_id = s.id
+                        WHERE 
+                            s.user_id = :user_id
+                            AND cm.embedding IS NOT NULL
+                            AND (:part_id IS NULL OR pc.part_id = :part_id)
+                    )
+                    SELECT 
+                        conversation_id,
+                        content,
+                        distance
+                    FROM 
+                        ranked_messages
+                    WHERE 
+                        rank = 1
+                    ORDER BY 
+                        distance ASC
+                    LIMIT :limit
+                """)
+                
+                result = db.session.execute(
+                    sql, 
+                    {
+                        "query_embedding": query_embedding, 
+                        "user_id": current_user_id,
+                        "part_id": UUID(part_id) if part_id else None,
+                        "limit": limit
+                    }
+                )
+                
+                # Get the conversation IDs from the result
+                conversation_ids = [row[0] for row in result]
+                
+                # If no results, return empty array
+                if not conversation_ids:
+                    return jsonify({"conversations": [], "count": 0}), 200
+                
+                # Get the full conversation objects
+                conversations = PartConversation.query.filter(
+                    PartConversation.id.in_(conversation_ids)
+                ).all()
+                
+                # Order them by the original result order
+                ordered_conversations = []
+                for conv_id in conversation_ids:
+                    for conv in conversations:
+                        if str(conv.id) == str(conv_id):
+                            ordered_conversations.append(conv)
+                            break
+                
+                return jsonify({
+                    "conversations": [conv.to_dict() for conv in ordered_conversations],
+                    "count": len(ordered_conversations)
+                }), 200
+                
+            except Exception as e:
+                logger.error(f"Error in semantic search: {e}")
+                return jsonify({"error": f"Semantic search failed: {str(e)}"}), 500
+        else:
+            # Regular text search in message content
+            from sqlalchemy import distinct
+            
+            # Find conversations with messages containing the query text
+            matching_conv_ids = db.session.query(distinct(ConversationMessage.conversation_id)).\
+                join(PartConversation, PartConversation.id == ConversationMessage.conversation_id).\
+                join(Part, Part.id == PartConversation.part_id).\
+                join(IFSSystem, IFSSystem.id == Part.system_id).\
+                filter(
+                    IFSSystem.user_id == current_user_id,
+                    ConversationMessage.content.ilike(f"%{query}%")
+                )
+                
+            if part_id:
+                try:
+                    uuid_part_id = UUID(part_id)
+                    matching_conv_ids = matching_conv_ids.filter(PartConversation.part_id == uuid_part_id)
+                except ValueError:
+                    return jsonify({"error": "Invalid part ID format"}), 400
+            
+            matching_conv_ids = matching_conv_ids.limit(limit).all()
+            
+            # Get the conversation objects
+            conversation_ids = [id[0] for id in matching_conv_ids]
+            conversations = PartConversation.query.filter(PartConversation.id.in_(conversation_ids)).all()
+            
+            return jsonify({
+                "conversations": [conv.to_dict() for conv in conversations],
+                "count": len(conversations)
+            }), 200
+        
+    except Exception as e:
+        logger.error(f"Error searching conversations: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@conversations_bp.route('/conversations/similar-messages', methods=['POST'])
+@jwt_required()
+def find_similar_messages():
+    """Find messages similar to the provided content using vector similarity.
+    
+    Request body:
+        content: The message content to find similar messages for.
+        limit: Maximum number of results to return (default: 5).
+        
+    Returns:
+        JSON response with similar messages.
+    """
+    try:
+        # Check if embedding service is available
+        if not EMBEDDINGS_AVAILABLE:
+            return jsonify({"error": "Embedding service is not available"}), 500
+            
+        # Get the current user
+        current_user_id = get_jwt_identity()
+        
+        # Validate request data
+        data = request.get_json()
+        if not data or 'content' not in data:
+            return jsonify({"error": "Message content is required"}), 400
+        
+        content = data.get('content')
+        limit = int(data.get('limit', 5))
+        
+        # Generate embedding for the content
+        try:
+            query_embedding = embedding_manager.generate_embedding(content)
+            
+            # Find similar messages using vector similarity
+            from sqlalchemy import text
+            
+            sql = text("""
+                SELECT 
+                    cm.id, 
+                    cm.role, 
+                    cm.content, 
+                    pc.id as conversation_id,
+                    p.id as part_id,
+                    p.name as part_name,
+                    cm.embedding <-> :query_embedding AS distance
+                FROM 
+                    conversation_messages cm
+                JOIN 
+                    part_conversations pc ON cm.conversation_id = pc.id
+                JOIN 
+                    parts p ON pc.part_id = p.id
+                JOIN 
+                    ifs_systems s ON p.system_id = s.id
+                WHERE 
+                    s.user_id = :user_id
+                    AND cm.embedding IS NOT NULL
+                ORDER BY 
+                    cm.embedding <-> :query_embedding ASC
+                LIMIT :limit
+            """)
+            
+            result = db.session.execute(
+                sql, 
+                {
+                    "query_embedding": query_embedding, 
+                    "user_id": current_user_id,
+                    "limit": limit
+                }
+            )
+            
+            # Format the results
+            messages = []
+            for row in result:
+                messages.append({
+                    "id": str(row[0]),
+                    "role": row[1],
+                    "content": row[2],
+                    "conversation_id": str(row[3]),
+                    "part_id": str(row[4]),
+                    "part_name": row[5],
+                    "similarity_score": 1.0 - float(row[6])  # Convert distance to similarity score
+                })
+            
+            return jsonify({
+                "messages": messages,
+                "count": len(messages)
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"Error generating embedding or finding similar messages: {e}")
+            return jsonify({"error": f"Failed to find similar messages: {str(e)}"}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in finding similar messages: {e}")
         return jsonify({"error": str(e)}), 500 
