@@ -7,9 +7,12 @@ from typing import Dict, Any, List, Optional
 
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, func
 from sqlalchemy.sql import func as sql_func
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, FLOAT
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, FLOAT, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.mutable import MutableList
+
+# Import pgvector extension types
+from pgvector.sqlalchemy import Vector
 
 from . import db
 
@@ -57,7 +60,7 @@ class ConversationMessage(db.Model):
     timestamp = Column(DateTime, default=func.now())
     
     # Vector embedding for the message content
-    embedding = Column(ARRAY(FLOAT), nullable=True)
+    embedding = Column(Vector(384), nullable=True)
     
     # Relationships
     conversation_id = Column(UUID(as_uuid=True), 
@@ -85,7 +88,7 @@ class PartPersonalityVector(db.Model):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     aspect = Column(String(50), nullable=False)  # e.g., 'personality', 'role', 'beliefs'
-    embedding = Column(ARRAY(FLOAT), nullable=False)
+    embedding = Column(Vector(384), nullable=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     

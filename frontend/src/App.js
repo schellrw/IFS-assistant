@@ -1,7 +1,8 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { Box } from '@mui/material';
 import { AuthProvider } from './context/AuthContext';
 import { IFSProvider } from './context/IFSContext';
 import { 
@@ -12,10 +13,16 @@ import {
   Register,
   NewPartPage, 
   SystemMapPage, 
-  PartDetailsPage 
+  PartDetailsPage,
+  ChatPage,
+  ConversationsPage
 } from './pages';
 import { Navigation, ProtectedRoute } from './components';
 import { ErrorBoundary } from 'react-error-boundary';
+import { injectDebugger } from './debug-helper';
+
+// Initialize debug tools
+injectDebugger();
 
 const theme = createTheme({
   palette: {
@@ -38,6 +45,17 @@ function ErrorFallback({error}) {
   )
 }
 
+// Custom wrapper for protected routes with IFSProvider
+const ProtectedIFSRoute = ({ children }) => {
+  return (
+    <ProtectedRoute>
+      <IFSProvider>
+        {children}
+      </IFSProvider>
+    </ProtectedRoute>
+  );
+};
+
 function App() {
   return (
     <ThemeProvider theme={theme}>
@@ -46,57 +64,57 @@ function App() {
         <Router>
           <div className="App">
             <Navigation />
-            <Routes>
-              {/* Public routes */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              
-              {/* Protected routes */}
-              <Route path="/" element={
-                <ProtectedRoute>
-                  <IFSProvider>
+            <Box sx={{ p: 2 }}>
+              <Routes>
+                {/* Public routes */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                
+                {/* Protected routes wrapped with IFSProvider */}
+                <Route path="/" element={
+                  <ProtectedIFSRoute>
                     <Dashboard />
-                  </IFSProvider>
-                </ProtectedRoute>
-              } />
-              <Route path="/parts" element={
-                <ProtectedRoute>
-                  <IFSProvider>
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/parts" element={
+                  <ProtectedIFSRoute>
                     <PartsView />
-                  </IFSProvider>
-                </ProtectedRoute>
-              } />
-              <Route path="/parts/new" element={
-                <ProtectedRoute>
-                  <IFSProvider>
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/parts/new" element={
+                  <ProtectedIFSRoute>
                     <NewPartPage />
-                  </IFSProvider>
-                </ProtectedRoute>
-              } />
-              <Route path="/journal" element={
-                <ProtectedRoute>
-                  <IFSProvider>
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/parts/:partId" element={
+                  <ProtectedIFSRoute>
+                    <PartDetailsPage />
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/chat/:partId" element={
+                  <ProtectedIFSRoute>
+                    <ChatPage />
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/conversations/:partId" element={
+                  <ProtectedIFSRoute>
+                    <ConversationsPage />
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/journal" element={
+                  <ProtectedIFSRoute>
                     <JournalPage />
-                  </IFSProvider>
-                </ProtectedRoute>
-              } />
-              <Route path="/system-map" element={
-                <ProtectedRoute>
-                  <IFSProvider>
+                  </ProtectedIFSRoute>
+                } />
+                <Route path="/system-map" element={
+                  <ProtectedIFSRoute>
                     <ErrorBoundary FallbackComponent={ErrorFallback}>
                       <SystemMapPage />
                     </ErrorBoundary>
-                  </IFSProvider>
-                </ProtectedRoute>
-              } />
-              <Route path="/parts/:partId" element={
-                <ProtectedRoute>
-                  <IFSProvider>
-                    <PartDetailsPage />
-                  </IFSProvider>
-                </ProtectedRoute>
-              } />
-            </Routes>
+                  </ProtectedIFSRoute>
+                } />
+              </Routes>
+            </Box>
           </div>
         </Router>
       </AuthProvider>

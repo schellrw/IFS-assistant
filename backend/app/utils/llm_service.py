@@ -147,6 +147,8 @@ class LLMService:
             "3. Express the part's needs and concerns authentically.",
             "4. Avoid being judgmental or harmful.",
             "5. Keep responses concise and focused.",
+            "6. IMPORTANT: Provide ONLY ONE response as the part. Do not simulate multiple turns of conversation.",
+            "7. Do NOT include 'User:' or any other prefixes in your response.",
             "",
             "Safety guidelines:",
             "1. If the conversation becomes harmful or inappropriate, gently redirect.",
@@ -168,7 +170,7 @@ class LLMService:
         # Add current user message
         if user_message:
             conversation_text.append(f"User: {user_message}")
-            conversation_text.append(f"{part.get('name', 'Part')}: ")
+            conversation_text.append(f"Generate a single response from {part.get('name', 'Part')} (without including the name prefix):")
         
         # Combine everything into the final prompt
         full_prompt = system_message + "\n\n" + "\n".join(conversation_text)
@@ -196,7 +198,46 @@ class LLMService:
         prompt = self.create_part_prompt(part, conversation_history, user_message)
         
         # Generate the response
-        return self.generate_response(prompt)
+        raw_response = self.generate_response(prompt)
+        
+        # Process the response to get only the part's message
+        # The LLM might generate a conversation with multiple turns
+        part_name = part.get('name', 'Part')
+        
+        # First, check if we have a clean response without any prefixes
+        if not raw_response.startswith(f"{part_name}:") and not raw_response.startswith("User:"):
+            # If it doesn't start with a role prefix, return as is
+            return raw_response.strip()
+        
+        # If the response contains multiple turns, extract just the first part response
+        lines = raw_response.split('\n')
+        part_response_lines = []
+        capture_mode = False
+        
+        for line in lines:
+            line = line.strip()
+            # Start capturing when we see the part's name
+            if line.startswith(f"{part_name}:"):
+                # Remove the prefix 
+                line = line[len(f"{part_name}:"):].strip()
+                capture_mode = True
+                if line:  # If there's content on the same line
+                    part_response_lines.append(line)
+            # Stop capturing if we see a new "User:" message
+            elif line.startswith("User:"):
+                break
+            # Append lines while in capture mode
+            elif capture_mode and line:
+                part_response_lines.append(line)
+        
+        # Join all captured lines
+        processed_response = " ".join(part_response_lines)
+        
+        # If we couldn't extract a proper response, return the raw text
+        if not processed_response:
+            return raw_response.strip()
+        
+        return processed_response
 
 
 # Create a singleton instance
