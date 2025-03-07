@@ -1,0 +1,3 @@
+@echo off
+echo Starting IFS Assistant Backend...
+python direct_pg_run.py 
