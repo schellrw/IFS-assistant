@@ -4,6 +4,7 @@ Direct runner script that uses the database configuration from .env file.
 """
 import os
 import sys
+import socket
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -16,6 +17,17 @@ print(f"Environment DB_USER: {os.environ.get('DB_USER')}")
 print(f"Environment DB_PASSWORD: {os.environ.get('DB_PASSWORD')}")
 print(f"Environment DB_NAME: {os.environ.get('DB_NAME')}")
 print(f"Environment FLASK_ENV: {os.environ.get('FLASK_ENV', 'not set')}")
+
+# Test PostgreSQL connectivity
+db_host = "localhost"
+db_port = 5433
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+result = sock.connect_ex((db_host, db_port))
+if result == 0:
+    print(f"PostgreSQL port {db_port} is open - database server appears to be running")
+else:
+    print(f"PostgreSQL port {db_port} is not open - database server might not be running")
+sock.close()
 
 try:
     from backend.app import create_app
