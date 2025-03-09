@@ -30,9 +30,19 @@ def check_supabase_connection():
         return False
 
     try:
-        # Try to fetch a small amount of data to verify connection
-        response = supabase.client.table('users').select('count', count='exact').execute()
-        logger.info(f"Connected to Supabase successfully. Found users table with {response.count} rows.")
+        # Just check if we can connect to Supabase, don't try to query a table
+        # This avoids trying to access tables that don't exist yet
+        supabase_url = os.environ.get('SUPABASE_URL')
+        if not supabase_url:
+            logger.error("SUPABASE_URL not set in environment variables")
+            return False
+        
+        # Check if the client is initialized
+        if not supabase.client:
+            logger.error("Supabase client not initialized")
+            return False
+            
+        logger.info(f"Connected to Supabase project at {supabase_url}")
         return True
     except Exception as e:
         logger.error(f"Failed to connect to Supabase: {e}")

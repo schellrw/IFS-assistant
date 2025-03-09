@@ -16,6 +16,7 @@ from flask_jwt_extended import JWTManager
 
 from .models import db, migrate
 from .config.config import get_config
+from .utils.db_adapter import init_db_adapter
 
 # Set up logging
 def configure_logging(app: Flask) -> None:
@@ -71,6 +72,15 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     db.init_app(app)
     migrate.init_app(app, db)
     jwt = JWTManager(app)
+    
+    # Initialize database adapter
+    try:
+        init_db_adapter(app, db)
+        app.logger.info("Database adapter initialized successfully")
+    except ImportError as e:
+        app.logger.warning(f"Could not initialize database adapter: {e}")
+    except Exception as e:
+        app.logger.error(f"Error initializing database adapter: {e}")
     
     # Configure CORS
     CORS(app, resources={r"/api/*": {"origins": app.config.get('CORS_ORIGINS')}})

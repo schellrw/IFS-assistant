@@ -1,225 +1,156 @@
 """
-Parts API routes for managing IFS parts.
+API routes for managing parts in an IFS system.
+Supports both SQLAlchemy and Supabase backends.
 """
 import logging
-from flask import Blueprint, request, jsonify, g
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from marshmallow import Schema, fields, validate, ValidationError
-import uuid
+from flask import Blueprint, request, jsonify, current_app, g
+from marshmallow import Schema, fields, ValidationError
 
-from ..models import db, Part, IFSSystem
+from ..models import db, Part
+from ..utils.auth_adapter import auth_required
 
 parts_bp = Blueprint('parts', __name__)
 logger = logging.getLogger(__name__)
 
-# Validation schema for part creation/updates
+# Table name for Supabase operations
+TABLE_NAME = 'parts'
+
+# Input validation schemas
 class PartSchema(Schema):
-    """Schema for validating part data."""
-    name = fields.String(required=True, validate=validate.Length(min=1, max=100))
-    role = fields.String(allow_none=True, validate=validate.Length(max=50))
-    description = fields.String(allow_none=True)
-    feelings = fields.List(fields.String(), allow_none=True)
-    beliefs = fields.List(fields.String(), allow_none=True)
-    triggers = fields.List(fields.String(), allow_none=True)
-    needs = fields.List(fields.String(), allow_none=True)
+    """Part schema validation."""
+    name = fields.String(required=True)
+    role = fields.String(required=False, allow_none=True)
+    description = fields.String(required=False, allow_none=True)
+    image_url = fields.String(required=False, allow_none=True)
 
 @parts_bp.route('/parts', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_parts():
-    """Get all parts in the user's system.
+    """Get all parts for the current user's system.
     
     Returns:
-        JSON response with all parts.
-    """
-    user_id = get_jwt_identity()
-    system = IFSSystem.query.filter_by(user_id=user_id).first()
-    
-    if not system:
-        logger.error(f"System not found for user {user_id}")
-        return jsonify({"error": "System not found"}), 404
-    
-    parts = Part.query.filter_by(system_id=str(system.id)).all()
-    
-    logger.info(f"Retrieved {len(parts)} parts for user {user_id}")
-    return jsonify([part.to_dict() for part in parts])
-
-@parts_bp.route('/parts', methods=['POST'])
-@jwt_required()
-def create_part():
-    """Create a new part in the user's system.
-    
-    Returns:
-        JSON response with the created part.
+        JSON response with parts data.
     """
     try:
-        user_id = get_jwt_identity()
-        system = IFSSystem.query.filter_by(user_id=user_id).first()
+        # Get system_id from request query parameters
+        system_id = request.args.get('system_id')
+        if not system_id:
+            return jsonify({"error": "system_id is required"}), 400
         
-        if not system:
-            logger.error(f"System not found for user {user_id}")
-            return jsonify({"error": "System not found"}), 404
+        # Use the database adapter
+        filter_dict = {'system_id': system_id}
+        parts = current_app.db_adapter.get_all(TABLE_NAME, Part, filter_dict)
         
-        # Validate the incoming data
-        try:
-            data = request.json
-            PartSchema().load(data)
-        except ValidationError as e:
-            logger.warning(f"Validation error: {e.messages}")
-            return jsonify({"error": "Validation failed", "details": e.messages}), 400
-        
-        # Create the part
-        part = Part(
-            name=data['name'],
-            system_id=str(system.id),
-            role=data.get('role'),
-            description=data.get('description', '')
-        )
-        
-        # Handle additional fields
-        if 'feelings' in data and data['feelings']:
-            part.feelings = data['feelings']
-        if 'beliefs' in data and data['beliefs']:
-            part.beliefs = data['beliefs']
-        if 'triggers' in data and data['triggers']:
-            part.triggers = data['triggers']
-        if 'needs' in data and data['needs']:
-            part.needs = data['needs']
-        
-        db.session.add(part)
-        db.session.commit()
-        
-        logger.info(f"Created part {part.name} for user {user_id}")
-        return jsonify({
-            "success": True,
-            "part": part.to_dict()
-        }), 201
-        
+        return jsonify(parts)
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error creating part: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error fetching parts: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching parts"}), 500
 
 @parts_bp.route('/parts/<part_id>', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_part(part_id):
-    """Get a specific part.
+    """Get a single part by ID.
     
     Args:
-        part_id: ID of the part to retrieve.
+        part_id: Part ID
         
     Returns:
-        JSON response with the requested part.
-    """
-    user_id = get_jwt_identity()
-    system = IFSSystem.query.filter_by(user_id=user_id).first()
-    
-    if not system:
-        logger.error(f"System not found for user {user_id}")
-        return jsonify({"error": "System not found"}), 404
-    
-    part = Part.query.filter_by(id=part_id, system_id=str(system.id)).first()
-    
-    if not part:
-        logger.warning(f"Part {part_id} not found")
-        return jsonify({"error": "Part not found"}), 404
-    
-    logger.info(f"Retrieved part {part.name}")
-    return jsonify(part.to_dict())
-
-@parts_bp.route('/parts/<part_id>', methods=['PUT'])
-@jwt_required()
-def update_part(part_id):
-    """Update a specific part.
-    
-    Args:
-        part_id: ID of the part to update.
-        
-    Returns:
-        JSON response with the updated part.
+        JSON response with part data.
     """
     try:
-        user_id = get_jwt_identity()
-        system = IFSSystem.query.filter_by(user_id=user_id).first()
-        
-        if not system:
-            logger.error(f"System not found for user {user_id}")
-            return jsonify({"error": "System not found"}), 404
-        
-        part = Part.query.filter_by(id=part_id, system_id=str(system.id)).first()
+        # Use the database adapter
+        part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
         
         if not part:
-            logger.warning(f"Part {part_id} not found")
             return jsonify({"error": "Part not found"}), 404
-        
+            
+        return jsonify(part)
+    except Exception as e:
+        logger.error(f"Error fetching part: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching the part"}), 500
+
+@parts_bp.route('/parts', methods=['POST'])
+@auth_required
+def create_part():
+    """Create a new part.
+    
+    Returns:
+        JSON response with created part data.
+    """
+    try:
         data = request.json
         
-        # Update part fields
-        if 'name' in data:
-            part.name = data['name']
-        if 'role' in data:
-            part.role = data['role']
-        if 'description' in data:
-            part.description = data['description']
-        if 'feelings' in data:
-            part.feelings = data['feelings']
-        if 'beliefs' in data:
-            part.beliefs = data['beliefs']
-        if 'triggers' in data:
-            part.triggers = data['triggers']
-        if 'needs' in data:
-            part.needs = data['needs']
+        # Validate input
+        PartSchema().load(data)
         
-        db.session.commit()
-        
-        logger.info(f"Updated part {part.name}")
-        return jsonify({
-            "success": True,
-            "part": part.to_dict()
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error updating part: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@parts_bp.route('/parts/<part_id>', methods=['DELETE'])
-@jwt_required()
-def delete_part(part_id):
-    """Delete a specific part.
-    
-    Args:
-        part_id: ID of the part to delete.
-        
-    Returns:
-        JSON response indicating success or failure.
-    """
-    try:
-        user_id = get_jwt_identity()
-        system = IFSSystem.query.filter_by(user_id=user_id).first()
-        
-        if not system:
-            logger.error(f"System not found for user {user_id}")
-            return jsonify({"error": "System not found"}), 404
-        
-        part = Part.query.filter_by(id=part_id, system_id=str(system.id)).first()
+        if 'system_id' not in data:
+            return jsonify({"error": "system_id is required"}), 400
+            
+        # Use the database adapter
+        part = current_app.db_adapter.create(TABLE_NAME, Part, data)
         
         if not part:
-            logger.warning(f"Part {part_id} not found")
-            return jsonify({"error": "Part not found"}), 404
-        
-        # Check if this is the "Self" part, which shouldn't be deleted
-        if part.role == "Self" and part.name == "Self":
-            logger.warning(f"Attempted to delete the Self part")
-            return jsonify({"error": "Cannot delete the Self part"}), 400
-        
-        part_name = part.name
-        db.session.delete(part)
-        db.session.commit()
-        
-        logger.info(f"Deleted part {part_name}")
-        return jsonify({"success": True})
-        
+            return jsonify({"error": "Failed to create part"}), 500
+            
+        return jsonify(part), 201
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except Exception as e:
-        db.session.rollback()
+        logger.error(f"Error creating part: {str(e)}")
+        return jsonify({"error": "An error occurred while creating the part"}), 500
+
+@parts_bp.route('/parts/<part_id>', methods=['PUT'])
+@auth_required
+def update_part(part_id):
+    """Update a part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with updated part data.
+    """
+    try:
+        data = request.json
+        
+        # Validate input
+        PartSchema().load(data)
+        
+        # Remove system_id if present (shouldn't be updated)
+        data.pop('system_id', None)
+        
+        # Use the database adapter
+        part = current_app.db_adapter.update(TABLE_NAME, Part, part_id, data)
+        
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
+            
+        return jsonify(part)
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.messages}), 400
+    except Exception as e:
+        logger.error(f"Error updating part: {str(e)}")
+        return jsonify({"error": "An error occurred while updating the part"}), 500
+
+@parts_bp.route('/parts/<part_id>', methods=['DELETE'])
+@auth_required
+def delete_part(part_id):
+    """Delete a part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with success message.
+    """
+    try:
+        # Use the database adapter
+        success = current_app.db_adapter.delete(TABLE_NAME, Part, part_id)
+        
+        if not success:
+            return jsonify({"error": "Part not found"}), 404
+            
+        return jsonify({"message": "Part deleted successfully"})
+    except Exception as e:
         logger.error(f"Error deleting part: {str(e)}")
-        return jsonify({"error": str(e)}), 500 
+        return jsonify({"error": "An error occurred while deleting the part"}), 500 

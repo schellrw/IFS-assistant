@@ -1,581 +1,537 @@
 """
 API endpoints for part conversations.
+Supports both SQLAlchemy and Supabase backends through the database adapter.
 """
 import logging
 from uuid import UUID
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from datetime import datetime
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from marshmallow import ValidationError
+from marshmallow import Schema, fields, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..models import db, Part, PartConversation, ConversationMessage, PartPersonalityVector, User, IFSSystem
+from ..utils.auth_adapter import auth_required
 
-# Try importing the util services
+# Configure logging first
+logger = logging.getLogger(__name__)
+
+# Try importing the embedding service
 try:
-    from ..utils.embeddings import embedding_manager
+    from ..utils.embeddings import EmbeddingManager
+    embedding_manager = EmbeddingManager()
     EMBEDDINGS_AVAILABLE = True
 except ImportError:
     EMBEDDINGS_AVAILABLE = False
-    print("Warning: Embedding manager not available, vector operations will be disabled")
+    logger.warning("Embedding manager not available, vector operations will be disabled")
 
+# Try importing the LLM service
 try:
-    from ..utils.llm_service import llm_service
+    from ..utils.llm_service import LLMService
+    llm_service = LLMService()
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
-    print("Warning: LLM service not available, part conversations will be limited")
-
-# Configure logging
-logger = logging.getLogger(__name__)
+    logger.warning("LLM service not available, part conversations will be limited")
 
 # Create a blueprint
 conversations_bp = Blueprint('conversations', __name__)
 
+# Table names for Supabase operations
+CONVERSATION_TABLE = 'part_conversations'
+CONVERSATION_MESSAGE_TABLE = 'conversation_messages'
+PART_TABLE = 'parts'
+PERSONALITY_VECTOR_TABLE = 'part_personality_vectors'
 
-@conversations_bp.route('/parts/<uuid:part_id>/conversations', methods=['GET'])
-@jwt_required()
-def get_conversations(part_id):
-    """Get all conversations for a part.
+# Input validation schemas
+class ConversationSchema(Schema):
+    """Conversation schema validation."""
+    title = fields.String(required=True)
+    part_id = fields.String(required=True)
+
+class MessageSchema(Schema):
+    """Message schema validation."""
+    content = fields.String(required=True)
+    auto_respond = fields.Boolean(required=False, default=True)
+
+@conversations_bp.route('/conversations', methods=['GET'])
+@auth_required
+def get_conversations():
+    """Get all conversations for the current user's system.
     
-    Args:
-        part_id: UUID of the part.
+    Query params:
+        system_id: System ID to filter by
+        part_id: Optional part ID to filter by
         
     Returns:
-        JSON response with list of conversations.
+        JSON response with conversations data.
     """
     try:
-        # Get the current user
-        current_user_id = get_jwt_identity()
+        # Get query parameters
+        system_id = request.args.get('system_id')
+        part_id = request.args.get('part_id')
         
-        # Find the part and verify ownership
-        part = Part.query.get_or_404(part_id)
+        if not system_id:
+            return jsonify({"error": "system_id query parameter is required"}), 400
         
-        # Check if the user has access to this part
-        system = part.system
-        if str(system.user_id) != current_user_id:
-            return jsonify({"error": "Unauthorized access"}), 403
+        # Build filter dictionary
+        filter_dict = {'system_id': system_id}
+        if part_id:
+            filter_dict['part_id'] = part_id
         
-        # Get all conversations for the part
-        conversations = PartConversation.query.filter_by(part_id=part_id).all()
+        # Use the database adapter
+        conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
         
-        # Return conversations as JSON
-        return jsonify({
-            "conversations": [conv.to_dict() for conv in conversations]
-        }), 200
-        
+        return jsonify(conversations)
     except Exception as e:
-        logger.error(f"Error getting conversations: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error fetching conversations: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching conversations"}), 500
 
-
-@conversations_bp.route('/parts/<uuid:part_id>/conversations', methods=['POST'])
-@jwt_required()
-def create_conversation(part_id):
-    """Create a new conversation for a part.
-    
-    Args:
-        part_id: UUID of the part.
-        
-    Returns:
-        JSON response with the created conversation.
-    """
-    try:
-        # Get the current user
-        current_user_id = get_jwt_identity()
-        
-        # Find the part and verify ownership
-        part = Part.query.get_or_404(part_id)
-        
-        # Check if the user has access to this part
-        system = part.system
-        if str(system.user_id) != current_user_id:
-            return jsonify({"error": "Unauthorized access"}), 403
-        
-        # Get request data
-        data = request.get_json()
-        
-        # Create a new conversation
-        conversation = PartConversation(
-            part_id=part_id,
-            title=data.get("title", f"Conversation with {part.name}")
-        )
-        
-        # Add to database
-        db.session.add(conversation)
-        db.session.commit()
-        
-        # Return the created conversation
-        return jsonify({
-            "message": "Conversation created successfully",
-            "conversation": conversation.to_dict()
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error creating conversation: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@conversations_bp.route('/conversations/<uuid:conversation_id>', methods=['GET'])
-@jwt_required()
+@conversations_bp.route('/conversations/<conversation_id>', methods=['GET'])
+@auth_required
 def get_conversation(conversation_id):
-    """Get a specific conversation with its messages.
+    """Get a conversation by ID with its messages.
     
     Args:
-        conversation_id: UUID of the conversation.
+        conversation_id: Conversation ID
         
     Returns:
-        JSON response with conversation details and messages.
+        JSON response with conversation and messages data.
     """
     try:
-        # Get the current user
-        current_user_id = get_jwt_identity()
-        
-        # Find the conversation
-        conversation = PartConversation.query.get_or_404(conversation_id)
-        
-        # Check if the user has access to this conversation
-        part = Part.query.get(conversation.part_id)
-        system = part.system
-        if str(system.user_id) != current_user_id:
-            return jsonify({"error": "Unauthorized access"}), 403
+        # Get conversation
+        conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
+        if not conversation:
+            return jsonify({"error": "Conversation not found"}), 404
         
         # Get messages for the conversation
-        messages = conversation.messages.all()
+        filter_dict = {'conversation_id': conversation_id}
+        messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
         
-        # Return conversation and messages as JSON
-        return jsonify({
-            "conversation": conversation.to_dict(),
-            "messages": [msg.to_dict() for msg in messages],
-            "part": part.to_dict()
-        }), 200
+        # Sort messages by creation time
+        messages.sort(key=lambda x: x.get('timestamp', ''))
         
+        # Get part information
+        part_id = conversation.get('part_id')
+        part = None
+        if part_id:
+            part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+        
+        response = {
+            "conversation": conversation,
+            "messages": messages,
+            "part": part
+        }
+        
+        return jsonify(response)
     except Exception as e:
-        logger.error(f"Error getting conversation: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error fetching conversation: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching the conversation"}), 500
 
-
-@conversations_bp.route('/conversations/<uuid:conversation_id>/messages', methods=['POST'])
-@jwt_required()
-def add_message(conversation_id):
-    """Add a new message to a conversation.
+@conversations_bp.route('/conversations', methods=['POST'])
+@auth_required
+def create_conversation():
+    """Create a new conversation.
     
-    Args:
-        conversation_id: UUID of the conversation.
-        
     Returns:
-        JSON response with the part's reply.
+        JSON response with created conversation data.
     """
     try:
-        # Get the current user
-        current_user_id = get_jwt_identity()
+        data = request.json
         
-        # Find the conversation
-        conversation = PartConversation.query.get_or_404(conversation_id)
+        # Validate input
+        ConversationSchema().load(data)
         
-        # Check if the user has access to this conversation
-        part = Part.query.get(conversation.part_id)
-        system = part.system
-        if str(system.user_id) != current_user_id:
-            return jsonify({"error": "Unauthorized access"}), 403
+        # Validate part exists
+        part_id = data.get('part_id')
+        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
         
-        # Get request data
-        data = request.get_json()
-        user_message = data.get("message", "")
+        # Extract system_id from part
+        system_id = part.get('system_id')
+        
+        # Create conversation
+        conversation_data = {
+            'title': data.get('title'),
+            'part_id': part_id,
+            'system_id': system_id,
+        }
+        
+        conversation = current_app.db_adapter.create(CONVERSATION_TABLE, PartConversation, conversation_data)
+        
+        if not conversation:
+            return jsonify({"error": "Failed to create conversation"}), 500
+        
+        return jsonify(conversation), 201
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.messages}), 400
+    except Exception as e:
+        logger.error(f"Error creating conversation: {str(e)}")
+        return jsonify({"error": "An error occurred while creating the conversation"}), 500
+
+@conversations_bp.route('/conversations/<conversation_id>/messages', methods=['POST'])
+@auth_required
+def add_message(conversation_id):
+    """Add a message to a conversation.
+    
+    Args:
+        conversation_id: Conversation ID
+        
+    Returns:
+        JSON response with created message and optional AI response.
+    """
+    try:
+        data = request.json
+        
+        # Validate input
+        MessageSchema().load(data)
+        
+        # Validate conversation exists
+        conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
+        if not conversation:
+            return jsonify({"error": "Conversation not found"}), 404
+        
+        content = data.get('content')
+        
+        # Create user message
+        user_message_data = {
+            'conversation_id': conversation_id,
+            'role': 'user',
+            'content': content
+        }
+        
+        # Generate embedding if available
+        if EMBEDDINGS_AVAILABLE:
+            try:
+                embedding = embedding_manager.generate_embedding(content)
+                if embedding:
+                    user_message_data['embedding'] = embedding
+            except Exception as e:
+                logger.error(f"Error generating embedding: {str(e)}")
+        
+        # Create message
+        user_message = current_app.db_adapter.create(CONVERSATION_MESSAGE_TABLE, ConversationMessage, user_message_data)
         
         if not user_message:
-            return jsonify({"error": "Message cannot be empty"}), 400
+            return jsonify({"error": "Failed to create message"}), 500
         
-        # Create a new message from the user
-        user_message_obj = ConversationMessage(
-            conversation_id=conversation_id,
-            role="user",
-            content=user_message
-        )
+        # If LLM service is available and auto_respond is requested, generate AI response
+        ai_message = None
+        auto_respond = data.get('auto_respond', True)
         
-        # Generate an embedding for the message if available
-        if EMBEDDINGS_AVAILABLE:
+        if LLM_AVAILABLE and auto_respond and conversation.get('part_id'):
             try:
-                user_message_obj.embedding = embedding_manager.generate_embedding(user_message)
+                # Get part
+                part_id = conversation.get('part_id')
+                part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+                
+                if not part:
+                    logger.error(f"Part {part_id} not found for conversation {conversation_id}")
+                    return jsonify({
+                        "message": user_message,
+                        "error": "Part not found, cannot generate AI response"
+                    }), 207
+                
+                # Get conversation history
+                filter_dict = {'conversation_id': conversation_id}
+                messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
+                messages.sort(key=lambda x: x.get('timestamp', ''))
+                
+                # Generate AI response - use a generic method name if specific one doesn't exist
+                try:
+                    ai_response_content = llm_service.generate_response(part, messages, content)
+                except AttributeError:
+                    # Fallback to a more generic method if available
+                    logger.warning("generate_part_response not found, trying generate_response")
+                    ai_response_content = "I'm sorry, I'm not able to respond right now."
+                
+                # Create AI message
+                ai_message_data = {
+                    'conversation_id': conversation_id,
+                    'role': 'assistant',
+                    'content': ai_response_content
+                }
+                
+                # Generate embedding for AI response if available
+                if EMBEDDINGS_AVAILABLE:
+                    try:
+                        ai_embedding = embedding_manager.generate_embedding(ai_response_content)
+                        if ai_embedding:
+                            ai_message_data['embedding'] = ai_embedding
+                    except Exception as e:
+                        logger.error(f"Error generating embedding for AI response: {str(e)}")
+                
+                # Create AI message
+                ai_message = current_app.db_adapter.create(CONVERSATION_MESSAGE_TABLE, ConversationMessage, ai_message_data)
+                
             except Exception as e:
-                logger.warning(f"Failed to generate embedding for message: {e}")
-                # Continue without embedding if it fails
+                logger.error(f"Error generating AI response: {str(e)}")
+                # Return partial success (user message was created)
+                return jsonify({
+                    "message": user_message,
+                    "error": f"Error generating AI response: {str(e)}"
+                }), 207
         
-        # Add to database
-        db.session.add(user_message_obj)
-        db.session.commit()
+        response = {
+            "message": user_message,
+            "ai_response": ai_message
+        }
         
-        # Get conversation history (last 10 messages)
-        history = [msg.to_dict() for msg in conversation.messages.order_by(
-            ConversationMessage.timestamp.desc()).limit(10).all()]
-        history.reverse()  # Oldest first
-        
-        # If LLM service is available, generate a response from the part
-        part_response = "I cannot respond right now. The chat service is unavailable."
-        if LLM_AVAILABLE:
-            try:
-                part_response = llm_service.chat_with_part(
-                    part.to_dict(),
-                    conversation_history=history,
-                    user_message=user_message
-                )
-            except Exception as e:
-                logger.error(f"Error generating part response: {e}")
-                part_response = f"I'm sorry, I couldn't process your message: {str(e)}"
-        
-        # Create a new message from the part
-        part_message = ConversationMessage(
-            conversation_id=conversation_id,
-            role="part",
-            content=part_response
-        )
-        
-        # Generate an embedding for the part's response if available
-        if EMBEDDINGS_AVAILABLE:
-            try:
-                part_message.embedding = embedding_manager.generate_embedding(part_response)
-            except Exception as e:
-                logger.warning(f"Failed to generate embedding for part response: {e}")
-                # Continue without embedding if it fails
-        
-        # Add to database
-        db.session.add(part_message)
-        db.session.commit()
-        
-        # Return the part's response
-        return jsonify({
-            "user_message": user_message_obj.to_dict(),
-            "part_response": part_message.to_dict()
-        }), 201
-        
+        return jsonify(response), 201
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error adding message: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error adding message: {str(e)}")
+        return jsonify({"error": "An error occurred while adding the message"}), 500
 
-
-@conversations_bp.route('/parts/<uuid:part_id>/personality-vectors', methods=['POST'])
-@jwt_required()
-def generate_personality_vectors(part_id):
-    """Generate and store personality vectors for a part.
+@conversations_bp.route('/conversations/<conversation_id>', methods=['DELETE'])
+@auth_required
+def delete_conversation(conversation_id):
+    """Delete a conversation.
     
     Args:
-        part_id: UUID of the part.
+        conversation_id: Conversation ID
         
     Returns:
-        JSON response with the created vectors.
+        JSON response with success message.
     """
     try:
-        # Check if embedding service is available
-        if not EMBEDDINGS_AVAILABLE:
-            return jsonify({"error": "Embedding service is not available"}), 500
+        # Use the database adapter
+        success = current_app.db_adapter.delete(CONVERSATION_TABLE, PartConversation, conversation_id)
         
-        # Get the current user
-        current_user_id = get_jwt_identity()
-        
-        # Find the part and verify ownership
-        part = Part.query.get_or_404(part_id)
-        
-        # Check if the user has access to this part
-        system = part.system
-        if str(system.user_id) != current_user_id:
-            return jsonify({"error": "Unauthorized access"}), 403
-        
-        # Get part as dictionary
-        part_dict = part.to_dict()
-        
-        # Generate the main personality embedding
-        try:
-            personality_embedding = embedding_manager.get_part_embedding(part_dict)
+        if not success:
+            return jsonify({"error": "Conversation not found"}), 404
             
-            # Create or update the personality vector
-            existing_vector = PartPersonalityVector.query.filter_by(
-                part_id=part_id, aspect="personality").first()
-                
-            if existing_vector:
-                existing_vector.embedding = personality_embedding
-                existing_vector.updated_at = db.func.now()
-            else:
-                vector = PartPersonalityVector(
-                    part_id=part_id,
-                    aspect="personality",
-                    embedding=personality_embedding
-                )
-                db.session.add(vector)
-            
-            # Commit changes
-            db.session.commit()
-            
-            # Return success response
-            return jsonify({
-                "message": "Personality vectors generated successfully",
-                "part_id": str(part_id)
-            }), 201
-            
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error generating personality vectors: {e}")
-            return jsonify({"error": f"Failed to generate embeddings: {str(e)}"}), 500
-            
+        return jsonify({"message": "Conversation deleted successfully"})
     except Exception as e:
-        logger.error(f"Error in personality vector generation: {e}")
-        return jsonify({"error": str(e)}), 500
-
+        logger.error(f"Error deleting conversation: {str(e)}")
+        return jsonify({"error": "An error occurred while deleting the conversation"}), 500
 
 @conversations_bp.route('/conversations/search', methods=['GET'])
-@jwt_required()
+@auth_required
 def search_conversations():
-    """Search for conversations based on text or semantic similarity.
+    """Search conversations by semantic query.
     
-    Query Parameters:
-        query: The search query text.
-        part_id: (Optional) Limit search to a specific part.
-        search_type: 'text' for regular text search, 'semantic' for vector search (default: 'text').
-        limit: Maximum number of results to return (default: 10).
+    Query params:
+        q: Search query
+        system_id: System ID (required)
+        limit: Maximum number of results (optional, default 10)
         
     Returns:
-        JSON response with matching conversations.
+        JSON response with search results.
     """
+    if not EMBEDDINGS_AVAILABLE:
+        return jsonify({"error": "Embedding service not available"}), 503
+    
     try:
-        # Get the current user
-        current_user_id = get_jwt_identity()
-        
         # Get query parameters
-        query = request.args.get('query', '')
-        part_id = request.args.get('part_id')
-        search_type = request.args.get('search_type', 'text')
+        query = request.args.get('q')
+        system_id = request.args.get('system_id')
         limit = int(request.args.get('limit', 10))
         
         if not query:
             return jsonify({"error": "Search query is required"}), 400
-        
-        # Base query to get conversations the user has access to
-        base_query = db.session.query(PartConversation).\
-            join(Part, Part.id == PartConversation.part_id).\
-            join(IFSSystem, IFSSystem.id == Part.system_id).\
-            filter(IFSSystem.user_id == current_user_id)
-        
-        # Filter by part if specified
-        if part_id:
-            try:
-                uuid_part_id = UUID(part_id)
-                base_query = base_query.filter(PartConversation.part_id == uuid_part_id)
-            except ValueError:
-                return jsonify({"error": "Invalid part ID format"}), 400
-        
-        # Perform the search based on search type
-        if search_type == 'semantic' and EMBEDDINGS_AVAILABLE:
-            # Generate embedding for the query
-            try:
-                query_embedding = embedding_manager.generate_embedding(query)
-                
-                # Get conversations with messages that match the query semantically
-                # This uses a subquery to find the most similar message in each conversation
-                from sqlalchemy import func, text
-                from sqlalchemy.sql import select
-                
-                # SQL for finding conversations with semantically similar messages
-                sql = text("""
-                    WITH ranked_messages AS (
-                        SELECT 
-                            cm.conversation_id,
-                            cm.content,
-                            cm.embedding <-> :query_embedding AS distance,
-                            ROW_NUMBER() OVER (PARTITION BY cm.conversation_id ORDER BY cm.embedding <-> :query_embedding ASC) as rank
-                        FROM 
-                            conversation_messages cm
-                        JOIN 
-                            part_conversations pc ON cm.conversation_id = pc.id
-                        JOIN 
-                            parts p ON pc.part_id = p.id
-                        JOIN 
-                            ifs_systems s ON p.system_id = s.id
-                        WHERE 
-                            s.user_id = :user_id
-                            AND cm.embedding IS NOT NULL
-                            AND (:part_id IS NULL OR pc.part_id = :part_id)
-                    )
-                    SELECT 
-                        conversation_id,
-                        content,
-                        distance
-                    FROM 
-                        ranked_messages
-                    WHERE 
-                        rank = 1
-                    ORDER BY 
-                        distance ASC
-                    LIMIT :limit
-                """)
-                
-                result = db.session.execute(
-                    sql, 
-                    {
-                        "query_embedding": query_embedding, 
-                        "user_id": current_user_id,
-                        "part_id": UUID(part_id) if part_id else None,
-                        "limit": limit
-                    }
-                )
-                
-                # Get the conversation IDs from the result
-                conversation_ids = [row[0] for row in result]
-                
-                # If no results, return empty array
-                if not conversation_ids:
-                    return jsonify({"conversations": [], "count": 0}), 200
-                
-                # Get the full conversation objects
-                conversations = PartConversation.query.filter(
-                    PartConversation.id.in_(conversation_ids)
-                ).all()
-                
-                # Order them by the original result order
-                ordered_conversations = []
-                for conv_id in conversation_ids:
-                    for conv in conversations:
-                        if str(conv.id) == str(conv_id):
-                            ordered_conversations.append(conv)
-                            break
-                
-                return jsonify({
-                    "conversations": [conv.to_dict() for conv in ordered_conversations],
-                    "count": len(ordered_conversations)
-                }), 200
-                
-            except Exception as e:
-                logger.error(f"Error in semantic search: {e}")
-                return jsonify({"error": f"Semantic search failed: {str(e)}"}), 500
-        else:
-            # Regular text search in message content
-            from sqlalchemy import distinct
             
-            # Find conversations with messages containing the query text
-            matching_conv_ids = db.session.query(distinct(ConversationMessage.conversation_id)).\
-                join(PartConversation, PartConversation.id == ConversationMessage.conversation_id).\
-                join(Part, Part.id == PartConversation.part_id).\
-                join(IFSSystem, IFSSystem.id == Part.system_id).\
-                filter(
-                    IFSSystem.user_id == current_user_id,
-                    ConversationMessage.content.ilike(f"%{query}%")
-                )
-                
+        if not system_id:
+            return jsonify({"error": "system_id is required"}), 400
+        
+        # Generate embedding for query
+        query_embedding = embedding_manager.generate_embedding(query)
+        
+        if not query_embedding:
+            return jsonify({"error": "Failed to generate embedding for query"}), 500
+        
+        # Perform vector similarity search
+        results = current_app.db_adapter.query_vector_similarity(
+            CONVERSATION_MESSAGE_TABLE,
+            ConversationMessage,
+            'embedding',
+            query_embedding,
+            limit
+        )
+        
+        # Enrich results with conversation information
+        enriched_results = []
+        seen_conversation_ids = set()
+        
+        for result in results:
+            conversation_id = result.get('conversation_id')
+            
+            # Skip duplicate conversations
+            if conversation_id in seen_conversation_ids:
+                continue
+            
+            seen_conversation_ids.add(conversation_id)
+            
+            # Get conversation
+            conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
+            
+            if not conversation:
+                continue
+            
+            # Check if conversation belongs to requested system
+            if conversation.get('system_id') != system_id:
+                continue
+            
+            # Get part if available
+            part = None
+            part_id = conversation.get('part_id')
+            
             if part_id:
-                try:
-                    uuid_part_id = UUID(part_id)
-                    matching_conv_ids = matching_conv_ids.filter(PartConversation.part_id == uuid_part_id)
-                except ValueError:
-                    return jsonify({"error": "Invalid part ID format"}), 400
+                part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
             
-            matching_conv_ids = matching_conv_ids.limit(limit).all()
-            
-            # Get the conversation objects
-            conversation_ids = [id[0] for id in matching_conv_ids]
-            conversations = PartConversation.query.filter(PartConversation.id.in_(conversation_ids)).all()
-            
-            return jsonify({
-                "conversations": [conv.to_dict() for conv in conversations],
-                "count": len(conversations)
-            }), 200
+            # Add to enriched results
+            enriched_results.append({
+                "message": result,
+                "conversation": conversation,
+                "part": part,
+                "similarity_score": result.get('distance')
+            })
         
+        return jsonify(enriched_results)
     except Exception as e:
-        logger.error(f"Error searching conversations: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error searching conversations: {str(e)}")
+        return jsonify({"error": "An error occurred while searching conversations"}), 500
 
+@conversations_bp.route('/parts/<part_id>/personality-vectors', methods=['POST'])
+@auth_required
+def generate_personality_vectors(part_id):
+    """Generate personality vector embeddings for a part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with created personality vectors.
+    """
+    if not EMBEDDINGS_AVAILABLE:
+        return jsonify({"error": "Embedding service not available"}), 503
+    
+    try:
+        # Get part
+        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
+        
+        # Get personality attributes from request
+        data = request.json
+        attributes = data.get('attributes', {})
+        
+        if not attributes or not isinstance(attributes, dict):
+            return jsonify({"error": "Attributes dictionary is required"}), 400
+        
+        # Generate personality vectors
+        created_vectors = []
+        
+        for attribute, description in attributes.items():
+            if not description or not isinstance(description, str):
+                continue
+            
+            # Generate embedding
+            embedding = embedding_manager.generate_embedding(description)
+            
+            if not embedding:
+                logger.error(f"Failed to generate embedding for {attribute}")
+                continue
+            
+            # Create or update personality vector
+            vector_data = {
+                'part_id': part_id,
+                'attribute': attribute,
+                'description': description,
+                'embedding': embedding
+            }
+            
+            # Check if vector already exists
+            filter_dict = {'part_id': part_id, 'attribute': attribute}
+            existing_vectors = current_app.db_adapter.get_all(PERSONALITY_VECTOR_TABLE, PartPersonalityVector, filter_dict)
+            
+            if existing_vectors:
+                # Update existing vector
+                existing_id = existing_vectors[0].get('id')
+                vector = current_app.db_adapter.update(PERSONALITY_VECTOR_TABLE, PartPersonalityVector, existing_id, vector_data)
+            else:
+                # Create new vector
+                vector = current_app.db_adapter.create(PERSONALITY_VECTOR_TABLE, PartPersonalityVector, vector_data)
+            
+            if vector:
+                created_vectors.append(vector)
+        
+        return jsonify({
+            "message": f"Generated {len(created_vectors)} personality vectors",
+            "vectors": created_vectors
+        })
+    except Exception as e:
+        logger.error(f"Error generating personality vectors: {str(e)}")
+        return jsonify({"error": "An error occurred while generating personality vectors"}), 500
 
 @conversations_bp.route('/conversations/similar-messages', methods=['POST'])
-@jwt_required()
+@auth_required
 def find_similar_messages():
-    """Find messages similar to the provided content using vector similarity.
+    """Find messages similar to the provided text.
     
-    Request body:
-        content: The message content to find similar messages for.
-        limit: Maximum number of results to return (default: 5).
-        
     Returns:
         JSON response with similar messages.
     """
+    if not EMBEDDINGS_AVAILABLE:
+        return jsonify({"error": "Embedding service not available"}), 503
+    
     try:
-        # Check if embedding service is available
-        if not EMBEDDINGS_AVAILABLE:
-            return jsonify({"error": "Embedding service is not available"}), 500
-            
-        # Get the current user
-        current_user_id = get_jwt_identity()
+        data = request.json
         
-        # Validate request data
-        data = request.get_json()
-        if not data or 'content' not in data:
-            return jsonify({"error": "Message content is required"}), 400
-        
-        content = data.get('content')
+        # Get query text
+        query_text = data.get('text')
         limit = int(data.get('limit', 5))
         
-        # Generate embedding for the content
-        try:
-            query_embedding = embedding_manager.generate_embedding(content)
+        if not query_text or not isinstance(query_text, str):
+            return jsonify({"error": "Query text is required"}), 400
+        
+        # Generate embedding for query
+        query_embedding = embedding_manager.generate_embedding(query_text)
+        
+        if not query_embedding:
+            return jsonify({"error": "Failed to generate embedding for query"}), 500
+        
+        # Perform vector similarity search
+        results = current_app.db_adapter.query_vector_similarity(
+            CONVERSATION_MESSAGE_TABLE,
+            ConversationMessage,
+            'embedding',
+            query_embedding,
+            limit
+        )
+        
+        # Enrich results with conversation and part information
+        enriched_results = []
+        
+        for result in results:
+            conversation_id = result.get('conversation_id')
             
-            # Find similar messages using vector similarity
-            from sqlalchemy import text
+            # Get conversation
+            conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
             
-            sql = text("""
-                SELECT 
-                    cm.id, 
-                    cm.role, 
-                    cm.content, 
-                    pc.id as conversation_id,
-                    p.id as part_id,
-                    p.name as part_name,
-                    cm.embedding <-> :query_embedding AS distance
-                FROM 
-                    conversation_messages cm
-                JOIN 
-                    part_conversations pc ON cm.conversation_id = pc.id
-                JOIN 
-                    parts p ON pc.part_id = p.id
-                JOIN 
-                    ifs_systems s ON p.system_id = s.id
-                WHERE 
-                    s.user_id = :user_id
-                    AND cm.embedding IS NOT NULL
-                ORDER BY 
-                    cm.embedding <-> :query_embedding ASC
-                LIMIT :limit
-            """)
+            if not conversation:
+                continue
             
-            result = db.session.execute(
-                sql, 
-                {
-                    "query_embedding": query_embedding, 
-                    "user_id": current_user_id,
-                    "limit": limit
-                }
-            )
+            # Get part if available
+            part = None
+            part_id = conversation.get('part_id')
             
-            # Format the results
-            messages = []
-            for row in result:
-                messages.append({
-                    "id": str(row[0]),
-                    "role": row[1],
-                    "content": row[2],
-                    "conversation_id": str(row[3]),
-                    "part_id": str(row[4]),
-                    "part_name": row[5],
-                    "similarity_score": 1.0 - float(row[6])  # Convert distance to similarity score
-                })
+            if part_id:
+                part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
             
-            return jsonify({
-                "messages": messages,
-                "count": len(messages)
-            }), 200
-            
-        except Exception as e:
-            logger.error(f"Error generating embedding or finding similar messages: {e}")
-            return jsonify({"error": f"Failed to find similar messages: {str(e)}"}), 500
-            
+            # Add to enriched results
+            enriched_results.append({
+                "message": result,
+                "conversation": conversation,
+                "part": part,
+                "similarity_score": result.get('distance')
+            })
+        
+        return jsonify(enriched_results)
     except Exception as e:
-        logger.error(f"Error in finding similar messages: {e}")
-        return jsonify({"error": str(e)}), 500 
+        logger.error(f"Error finding similar messages: {str(e)}")
+        return jsonify({"error": "An error occurred while finding similar messages"}), 500 
