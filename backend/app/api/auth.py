@@ -1,5 +1,6 @@
 """
 Authentication routes for user registration and login.
+Supports both traditional JWT and Supabase Auth based on environment configuration.
 """
 import logging
 from flask import Blueprint, request, jsonify, g
@@ -8,6 +9,7 @@ from marshmallow import Schema, fields, validate, ValidationError
 from email_validator import validate_email, EmailNotValidError
 
 from ..models import db, User, IFSSystem, Part
+from ..utils.auth_adapter import auth_required, register_user, login_user, use_supabase_auth
 
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger(__name__)
@@ -75,52 +77,44 @@ def register():
     
     logger.info(f"Registration attempt for: {username}, {email}")
     
-    # Check for existing user
-    existing_user = User.query.filter_by(username=username).first()
-    if existing_user:
-        logger.warning(f"Registration failed: Username {username} already exists")
-        return jsonify({"error": "Username already exists"}), 400
-        
-    existing_email = User.query.filter_by(email=email).first()
-    if existing_email:
-        logger.warning(f"Registration failed: Email {email} already exists")
-        return jsonify({"error": "Email already exists"}), 400
-    
     try:
-        # Create new user
-        user = User(username=username, email=email, password=password)
-        db.session.add(user)
-        db.session.flush()  # Get user ID without committing
+        # Use the auth adapter for registration
+        user_data, access_token = register_user(username, email, password)
         
         # Create a new system for the user
-        system = IFSSystem(user_id=str(user.id))
-        db.session.add(system)
-        db.session.flush()  # Get system ID without committing
+        # Note: This needs to be adapted for Supabase as well
+        if not use_supabase_auth:
+            # For traditional database, this is already handled in register_user
+            pass
+        else:
+            # For Supabase, we need to create the system
+            system = IFSSystem(user_id=user_data["id"])
+            db.session.add(system)
+            db.session.flush()
+            
+            # Add default "Self" part
+            self_part = Part(
+                name="Self", 
+                system_id=str(system.id),
+                role="Self", 
+                description="The compassionate core consciousness that can observe and interact with other parts"
+            )
+            db.session.add(self_part)
+            db.session.commit()
         
-        # Add default "Self" part
-        self_part = Part(
-            name="Self", 
-            system_id=str(system.id),
-            role="Self", 
-            description="The compassionate core consciousness that can observe and interact with other parts"
-        )
-        db.session.add(self_part)
-        
-        db.session.commit()
-        
-        # Create access token
-        access_token = create_access_token(identity=str(user.id))
-        
-        logger.info(f"User {username} registered successfully with ID: {user.id}")
+        logger.info(f"User {username} registered successfully with ID: {user_data.get('id')}")
         return jsonify({
             "message": "User registered successfully",
             "access_token": access_token,
-            "user": user.to_dict()
+            "user": user_data
         }), 201
+    except ValueError as e:
+        logger.warning(f"Registration validation error: {str(e)}")
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error(f"Registration error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An error occurred during registration"}), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -137,39 +131,33 @@ def login():
         username = data.get('username')
         password = data.get('password')
         
-        user = User.query.filter_by(username=username).first()
-        
-        if not user or not user.verify_password(password):
-            logger.warning(f"Failed login attempt for username: {username}")
-            return jsonify({"error": "Invalid username or password"}), 401
-        
-        # Create access token
-        access_token = create_access_token(identity=str(user.id))
+        # Use the auth adapter for login
+        user_data, access_token = login_user(username, password)
         
         logger.info(f"User {username} logged in successfully")
         return jsonify({
             "message": "Login successful",
             "access_token": access_token,
-            "user": user.to_dict()
+            "user": user_data
         })
     except ValidationError as e:
         return jsonify({"error": "Validation failed", "details": e.messages}), 400
+    except ValueError as e:
+        logger.warning(f"Login failed: {str(e)}")
+        return jsonify({"error": str(e)}), 401
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
         return jsonify({"error": "An error occurred during login"}), 500
 
 @auth_bp.route('/me', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_current_user():
     """Get current authenticated user.
     
     Returns:
         JSON response with current user data.
     """
-    user_id = get_jwt_identity()
-    user = User.query.get(user_id)
-    
-    if not user:
+    if not g.current_user:
         return jsonify({"error": "User not found"}), 404
         
-    return jsonify(user.to_dict()) 
+    return jsonify(g.current_user) 

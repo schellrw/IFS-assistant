@@ -1,0 +1,86 @@
+name: ifs-assistant
+services:
+  - name: api
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: yourusername/ifs-assistant
+    build_command: pip install -r requirements.txt
+    run_command: gunicorn wsgi:app
+    source_dir: /
+    http_port: 5000
+    routes:
+      - path: /api
+    envs:
+      - key: FLASK_ENV
+        value: production
+        scope: RUN_TIME
+      - key: FLASK_APP
+        value: app.py
+        scope: RUN_TIME
+      - key: PORT
+        value: ${APP_PORT}
+        scope: RUN_TIME
+      - key: JWT_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SUPABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: SUPABASE_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SUPABASE_USE_FOR_DB
+        value: "True"
+        scope: RUN_TIME
+      - key: SUPABASE_USE_FOR_AUTH
+        value: "True"
+        scope: RUN_TIME
+      - key: CORS_ORIGINS
+        value: https://${APP_DOMAIN}
+        scope: RUN_TIME
+      - key: HOST
+        value: 0.0.0.0
+        scope: RUN_TIME
+      - key: LOG_LEVEL
+        value: INFO
+        scope: RUN_TIME
+      - key: HUGGINGFACE_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+  - name: frontend
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: yourusername/ifs-assistant
+    build_command: cd frontend && npm install && npm run build
+    source_dir: frontend
+    output_dir: build
+    routes:
+      - path: /
+    envs:
+      - key: REACT_APP_API_URL
+        value: https://api.${APP_DOMAIN}
+        scope: BUILD_TIME
+      - key: NODE_ENV
+        value: production
+        scope: BUILD_TIME
+      - key: REACT_APP_SUPABASE_URL
+        scope: BUILD_TIME
+        value: ${SUPABASE_URL}
+      - key: REACT_APP_SUPABASE_KEY
+        scope: BUILD_TIME
+        value: ${SUPABASE_KEY}
+
+databases:
+  # We're using Supabase instead of a Digital Ocean managed database
+  # You can uncomment this if you want to use a Digital Ocean managed database
+  # - engine: PG
+  #   name: ifs-assistant-db
+  #   num_nodes: 1
+  #   size: db-s-dev-database
+  #   version: "14" 
