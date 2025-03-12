@@ -8,6 +8,7 @@ from marshmallow import Schema, fields, validate, ValidationError
 import uuid
 
 from ..models import db, Relationship, Part, IFSSystem
+from ..utils.auth_adapter import auth_required
 
 relationships_bp = Blueprint('relationships', __name__)
 logger = logging.getLogger(__name__)
@@ -21,14 +22,14 @@ class RelationshipSchema(Schema):
     description = fields.String(allow_none=True)
 
 @relationships_bp.route('/relationships', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_relationships():
     """Get all relationships in the user's system.
     
     Returns:
         JSON response with all relationships.
     """
-    user_id = get_jwt_identity()
+    user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
     system = IFSSystem.query.filter_by(user_id=user_id).first()
     
     if not system:
@@ -41,7 +42,7 @@ def get_relationships():
     return jsonify([rel.to_dict() for rel in relationships])
 
 @relationships_bp.route('/relationships', methods=['POST'])
-@jwt_required()
+@auth_required
 def create_relationship():
     """Create a new relationship between parts.
     
@@ -49,7 +50,7 @@ def create_relationship():
         JSON response with the created relationship.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -79,18 +80,18 @@ def create_relationship():
             logger.warning(f"Target part {target_id} not found")
             return jsonify({"error": f"Target part {target_id} not found"}), 404
         
-        # Check if relationship already exists
+        # Check if relationship already exists using part1_id/part2_id
         existing_rel = Relationship.query.filter_by(
-            source_id=source_id,
-            target_id=target_id,
+            part1_id=source_id,
+            part2_id=target_id,
             system_id=str(system.id)
         ).first()
         
         if existing_rel:
             logger.warning(f"Relationship already exists between {source_id} and {target_id}")
-            return jsonify({"error": "Relationship already exists"}), 400
-        
-        # Create relationship
+            return jsonify({"error": f"Relationship already exists between these parts"}), 400
+            
+        # Create relationship with source_id/target_id which will map to part1_id/part2_id
         relationship = Relationship(
             source_id=source_id,
             target_id=target_id,
@@ -102,7 +103,7 @@ def create_relationship():
         db.session.add(relationship)
         db.session.commit()
         
-        logger.info(f"Created relationship: {relationship.relationship_type} from {source_part.name} to {target_part.name}")
+        logger.info(f"Created relationship: {relationship.relationship_type}")
         return jsonify({
             "success": True,
             "relationship": relationship.to_dict()
@@ -114,7 +115,7 @@ def create_relationship():
         return jsonify({"error": str(e)}), 500
 
 @relationships_bp.route('/relationships/<relationship_id>', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_relationship(relationship_id):
     """Get a specific relationship.
     
@@ -124,7 +125,7 @@ def get_relationship(relationship_id):
     Returns:
         JSON response with the requested relationship.
     """
-    user_id = get_jwt_identity()
+    user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
     system = IFSSystem.query.filter_by(user_id=user_id).first()
     
     if not system:
@@ -141,7 +142,7 @@ def get_relationship(relationship_id):
     return jsonify(relationship.to_dict())
 
 @relationships_bp.route('/relationships/<relationship_id>', methods=['PUT'])
-@jwt_required()
+@auth_required
 def update_relationship(relationship_id):
     """Update a specific relationship.
     
@@ -152,7 +153,7 @@ def update_relationship(relationship_id):
         JSON response with the updated relationship.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -187,7 +188,7 @@ def update_relationship(relationship_id):
         return jsonify({"error": str(e)}), 500
 
 @relationships_bp.route('/relationships/<relationship_id>', methods=['DELETE'])
-@jwt_required()
+@auth_required
 def delete_relationship(relationship_id):
     """Delete a specific relationship.
     
@@ -198,7 +199,7 @@ def delete_relationship(relationship_id):
         JSON response indicating success or failure.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:

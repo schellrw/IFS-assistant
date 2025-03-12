@@ -21,13 +21,26 @@ export const AuthProvider = ({ children }) => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       localStorage.setItem('token', token);
-      console.log('Token set in localStorage and axios headers');
+      console.log('Token set in localStorage and axios headers:', token.substring(0, 10) + '...');
     } else {
       delete axios.defaults.headers.common['Authorization'];
       localStorage.removeItem('token');
       console.log('Token removed from localStorage and axios headers');
     }
   }, [token]);
+
+  // Initial auth check using token from localStorage
+  useEffect(() => {
+    const initialToken = localStorage.getItem('token');
+    if (initialToken && initialToken !== 'undefined' && initialToken !== 'null') {
+      console.log('Found token in localStorage:', initialToken.substring(0, 10) + '...');
+      setToken(initialToken);
+    } else {
+      console.log('No valid token found in localStorage');
+      setToken(null);
+    }
+    setLoading(false);
+  }, []);
 
   // Check if there's a stored token on mount
   useEffect(() => {
@@ -104,8 +117,19 @@ export const AuthProvider = ({ children }) => {
         password
       });
       console.log('Login successful, response:', response.data);
-      setToken(response.data.access_token);
+      
+      if (!response.data.access_token) {
+        throw new Error('No access token received from server');
+      }
+      
+      // Save token and set current user
+      const receivedToken = response.data.access_token;
+      setToken(receivedToken);
       setCurrentUser(response.data.user);
+      
+      // Double-check token was set
+      console.log(`Token saved: ${receivedToken.substring(0, 10)}...`);
+      
       return response.data;
     } catch (err) {
       console.error('Login failed with error:', err);
@@ -133,6 +157,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   const value = {
+    token,
+    setToken,
     currentUser,
     loading,
     error,
@@ -140,7 +166,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
-    isAuthenticated: !!currentUser
+    isAuthenticated: !!token
   };
 
   return (

@@ -23,8 +23,8 @@ class PartConversation(db.Model):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     title = Column(String(255), nullable=True)
     summary = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     part_id = Column(UUID(as_uuid=True), ForeignKey('parts.id', ondelete='CASCADE'), nullable=False)
@@ -57,7 +57,7 @@ class ConversationMessage(db.Model):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     role = Column(String(50), nullable=False)  # 'user' or 'part'
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=func.now())
+    timestamp = Column(DateTime, server_default=func.now())
     
     # Vector embedding for the message content
     embedding = Column(Vector(384), nullable=True)
@@ -89,8 +89,8 @@ class PartPersonalityVector(db.Model):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     aspect = Column(String(50), nullable=False)  # e.g., 'personality', 'role', 'beliefs'
     embedding = Column(Vector(384), nullable=False)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     part_id = Column(UUID(as_uuid=True), ForeignKey('parts.id', ondelete='CASCADE'), nullable=False)

@@ -10,7 +10,7 @@ from logging.config import dictConfig
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
@@ -83,7 +83,73 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         app.logger.error(f"Error initializing database adapter: {e}")
     
     # Configure CORS
-    CORS(app, resources={r"/api/*": {"origins": app.config.get('CORS_ORIGINS')}})
+    CORS(app, resources={r"/api/*": {
+        "origins": app.config.get('CORS_ORIGINS'),
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]
+    }})
+    
+    # Add test endpoints for connectivity testing
+    @app.route('/api/test', methods=['GET', 'OPTIONS'])
+    def test():
+        return {"status": "ok", "message": "API is running"}
+        
+    @app.route('/api/health', methods=['GET', 'OPTIONS'])
+    def health():
+        return {"status": "ok", "message": "Backend is healthy"}
+    
+    @app.route('/api/db-status', methods=['GET'])
+    def db_status():
+        """Check database connection status."""
+        try:
+            # Try a simple query to check if database is connected
+            from .models import User
+            result = db.session.execute(db.select(User).limit(1))
+            count = len(list(result.scalars()))
+            
+            # Check JWT config
+            jwt_config = {
+                "secret_key": app.config.get("JWT_SECRET_KEY", "Not set")[:5] + "...",
+                "algorithm": app.config.get("JWT_ALGORITHM", "Not set"),
+                "access_expiry": app.config.get("JWT_ACCESS_TOKEN_EXPIRES", "Not set"),
+            }
+            
+            # Return database status and configuration info
+            return {
+                "status": "ok", 
+                "message": "Database connection successful",
+                "count": count,
+                "db_uri": app.config.get("SQLALCHEMY_DATABASE_URI", "Not set").split("@")[0] + "...",
+                "jwt_config": jwt_config
+            }
+        except Exception as e:
+            app.logger.error(f"Database health check failed: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Database connection failed: {str(e)}",
+                "config": app.config.get("SQLALCHEMY_DATABASE_URI", "Not set").split("@")[0] + "..."
+            }, 500
+    
+    @app.route('/api/auth-debug', methods=['GET'])
+    def auth_debug():
+        """Debug endpoint to check authentication headers."""
+        auth_header = request.headers.get('Authorization', 'No Authorization header')
+        
+        # Get the first 10 chars of the token for debugging (if it exists)
+        token_preview = "None"
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            token_preview = token[:10] + "..." if len(token) > 10 else token
+        
+        # Get all headers for debugging
+        headers = {key: value for key, value in request.headers.items()}
+        
+        return {
+            "status": "ok",
+            "auth_header": auth_header,
+            "token_preview": token_preview,
+            "all_headers": headers
+        }
     
     # Register blueprints
     from .api.auth import auth_bp

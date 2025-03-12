@@ -27,11 +27,11 @@ class Part(db.Model):
     triggers = Column(JSONB, default=list)
     needs = Column(JSONB, default=list)
     
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    system_id = Column(UUID(as_uuid=True), ForeignKey('systems.id'), nullable=False)
+    system_id = Column(UUID(as_uuid=True), ForeignKey('ifs_systems.id'), nullable=False)
     
     # Set up relationships for easier querying
     journals = relationship('Journal', back_populates='part', lazy=True)
@@ -43,7 +43,7 @@ class Part(db.Model):
     # Relationship to other parts (defined via Relationship model)
     source_relationships = relationship(
         'Relationship', 
-        foreign_keys='Relationship.source_id',
+        foreign_keys='Relationship.part1_id',
         backref='source',
         lazy=True,
         cascade='all, delete-orphan'
@@ -51,14 +51,16 @@ class Part(db.Model):
     
     target_relationships = relationship(
         'Relationship', 
-        foreign_keys='Relationship.target_id',
+        foreign_keys='Relationship.part2_id',
         backref='target',
         lazy=True,
         cascade='all, delete-orphan'
     )
     
     def __init__(self, name: str, system_id: str, role: Optional[str] = None, 
-                 description: str = "", feelings: Optional[List[str]] = None):
+                 description: str = "", feelings: Optional[List[str]] = None,
+                 beliefs: Optional[List[str]] = None, triggers: Optional[List[str]] = None,
+                 needs: Optional[List[str]] = None):
         """Initialize a part.
         
         Args:
@@ -67,25 +69,29 @@ class Part(db.Model):
             role: Optional role or function of this part.
             description: Longer description of the part.
             feelings: List of feelings associated with this part.
+            beliefs: List of beliefs held by this part.
+            triggers: List of things that activate this part.
+            needs: List of needs this part has.
         """
         self.name = name
+        self.system_id = system_id
         self.role = role
         self.description = description
         self.feelings = feelings or []
-        self.beliefs = []
-        self.triggers = []
-        self.needs = []
-        self.system_id = system_id
-        
+        self.beliefs = beliefs or []
+        self.triggers = triggers or []
+        self.needs = needs or []
+    
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the part to a dictionary.
+        """Convert part to dictionary representation.
         
         Returns:
-            Dictionary representation of the part.
+            Dictionary representation of part.
         """
         return {
             "id": str(self.id),
             "name": self.name,
+            "system_id": str(self.system_id),
             "role": self.role,
             "description": self.description,
             "feelings": self.feelings,

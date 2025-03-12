@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func as sql_func
 
 from . import db
 
@@ -17,12 +18,14 @@ class Journal(db.Model):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     title = Column(String(200), nullable=False)
     content = Column(Text)
-    date = Column(DateTime, default=func.now())
+    date = Column(DateTime, server_default=sql_func.now())
+    created_at = Column(DateTime, server_default=sql_func.now())
+    updated_at = Column(DateTime, server_default=sql_func.now(), onupdate=sql_func.now())
     journal_metadata = Column(Text)  # For storing emotions, parts_present, and other flexible data
     
     # Relationships
     part_id = Column(UUID(as_uuid=True), ForeignKey('parts.id'), nullable=True)
-    system_id = Column(UUID(as_uuid=True), ForeignKey('systems.id'), nullable=False)
+    system_id = Column(UUID(as_uuid=True), ForeignKey('ifs_systems.id'), nullable=False)
     
     # Relationship to part (optional)
     part = relationship('Part', back_populates='journals', lazy=True)
@@ -55,6 +58,8 @@ class Journal(db.Model):
             "title": self.title,
             "content": self.content,
             "date": self.date.isoformat() if self.date else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "part_id": str(self.part_id) if self.part_id else None,
             "metadata": self.journal_metadata  # Keep API response field name as "metadata" for consistency
         }
