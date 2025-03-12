@@ -37,16 +37,16 @@ const JournalPage = () => {
   useEffect(() => {
     let prompt;
     
-    // First check for prompt from navigation state
-    if (location.state?.selectedPrompt) {
-      console.log('Journal Page: Using prompt from navigation:', location.state.selectedPrompt);
-      prompt = location.state.selectedPrompt;
-    } 
-    // Otherwise check localStorage
-    else {
+    // Handle prompt from navigation state or localStorage
+    if (location.state && location.state.prompt) {
+      console.log('Journal Page: Using prompt from navigation:', location.state.prompt);
+      prompt = location.state.prompt;
+      localStorage.setItem('currentJournalPrompt', prompt);
+    } else {
+      // Check if we have a saved prompt
       const savedPrompt = localStorage.getItem('currentJournalPrompt');
-      if (savedPrompt && REFLECTIVE_PROMPTS.includes(savedPrompt)) {
-        console.log('Journal Page: Using saved prompt from localStorage:', savedPrompt);
+      if (savedPrompt) {
+        console.log('Journal Page: Using saved prompt from localStorage');
         prompt = savedPrompt;
       } else {
         // Fallback to random prompt
@@ -59,11 +59,24 @@ const JournalPage = () => {
     
     setInitialPrompt(prompt);
     
-    // Load journals
-    getJournals().catch(err => {
-      console.log('Error fetching journals, might need authentication:', err);
-    });
-  }, [location.state, getJournals]);
+  }, [location.state]); // Only depend on location.state for prompt setting
+  
+  // Separate useEffect for journals loading to prevent repeated calls
+  useEffect(() => {
+    // Load journals only if authenticated and system ID is available
+    if (system && system.id) {
+      console.log('Fetching journals for system:', system.id);
+      getJournals().catch(err => {
+        console.error('Error fetching journals:', err);
+        setSaveStatus({ 
+          type: 'error', 
+          message: 'Could not load journals. Please ensure you are logged in.' 
+        });
+      });
+    } else {
+      console.log('No system available yet, skipping journal fetch');
+    }
+  }, [system?.id]); // Only depend on system.id, not the entire system object or getJournals
 
   const handleSave = async () => {
     try {

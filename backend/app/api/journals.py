@@ -8,6 +8,7 @@ from marshmallow import Schema, fields, validate, ValidationError
 import uuid
 
 from ..models import db, Journal, Part, IFSSystem
+from ..utils.auth_adapter import auth_required
 
 journals_bp = Blueprint('journals', __name__)
 logger = logging.getLogger(__name__)
@@ -21,27 +22,40 @@ class JournalSchema(Schema):
     metadata = fields.String(allow_none=True)  # Keep as metadata in API schema for consistency
 
 @journals_bp.route('/journals', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_journals():
     """Get all journals in the user's system.
     
     Returns:
         JSON response with all journal entries.
     """
-    user_id = get_jwt_identity()
-    system = IFSSystem.query.filter_by(user_id=user_id).first()
+    user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
     
-    if not system:
-        logger.error(f"System not found for user {user_id}")
-        return jsonify({"error": "System not found"}), 404
+    # Allow passing system_id as a query parameter
+    system_id = request.args.get('system_id')
     
-    journals = Journal.query.filter_by(system_id=str(system.id)).all()
+    if system_id:
+        # Verify the system belongs to the user
+        system = IFSSystem.query.filter_by(id=system_id, user_id=user_id).first()
+        if not system:
+            logger.error(f"System {system_id} not found for user {user_id}")
+            return jsonify({"error": "System not found or unauthorized"}), 404
+    else:
+        # Look up the system for the user
+        system = IFSSystem.query.filter_by(user_id=user_id).first()
+        if not system:
+            logger.error(f"System not found for user {user_id}")
+            return jsonify({"error": "System not found"}), 404
+        system_id = str(system.id)
     
-    logger.info(f"Retrieved {len(journals)} journals for user {user_id}")
+    # Get journals for the system
+    journals = Journal.query.filter_by(system_id=system_id).all()
+    
+    logger.info(f"Retrieved {len(journals)} journals for system {system_id}")
     return jsonify([journal.to_dict() for journal in journals])
 
 @journals_bp.route('/journals', methods=['POST'])
-@jwt_required()
+@auth_required
 def create_journal():
     """Create a new journal entry.
     
@@ -49,7 +63,7 @@ def create_journal():
         JSON response with the created journal entry.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -97,7 +111,7 @@ def create_journal():
         return jsonify({"error": str(e)}), 500
 
 @journals_bp.route('/journals/<journal_id>', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_journal(journal_id):
     """Get a specific journal entry.
     
@@ -105,9 +119,9 @@ def get_journal(journal_id):
         journal_id: ID of the journal to retrieve.
         
     Returns:
-        JSON response with the requested journal.
+        JSON response with the requested journal entry.
     """
-    user_id = get_jwt_identity()
+    user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
     system = IFSSystem.query.filter_by(user_id=user_id).first()
     
     if not system:
@@ -124,7 +138,7 @@ def get_journal(journal_id):
     return jsonify(journal.to_dict())
 
 @journals_bp.route('/journals/<journal_id>', methods=['PUT'])
-@jwt_required()
+@auth_required
 def update_journal(journal_id):
     """Update a specific journal entry.
     
@@ -135,7 +149,7 @@ def update_journal(journal_id):
         JSON response with the updated journal.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -181,7 +195,7 @@ def update_journal(journal_id):
         return jsonify({"error": str(e)}), 500
 
 @journals_bp.route('/journals/<journal_id>', methods=['DELETE'])
-@jwt_required()
+@auth_required
 def delete_journal(journal_id):
     """Delete a specific journal entry.
     
@@ -192,7 +206,7 @@ def delete_journal(journal_id):
         JSON response indicating success or failure.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:

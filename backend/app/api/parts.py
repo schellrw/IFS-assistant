@@ -22,6 +22,11 @@ class PartSchema(Schema):
     role = fields.String(required=False, allow_none=True)
     description = fields.String(required=False, allow_none=True)
     image_url = fields.String(required=False, allow_none=True)
+    system_id = fields.String(required=True)
+    feelings = fields.List(fields.String(), required=False, allow_none=True)
+    beliefs = fields.List(fields.String(), required=False, allow_none=True)
+    triggers = fields.List(fields.String(), required=False, allow_none=True)
+    needs = fields.List(fields.String(), required=False, allow_none=True)
 
 @parts_bp.route('/parts', methods=['GET'])
 @auth_required
@@ -79,25 +84,41 @@ def create_part():
     """
     try:
         data = request.json
+        logger.debug(f"Received part creation request: {data}")
         
         # Validate input
-        PartSchema().load(data)
+        try:
+            PartSchema().load(data)
+            logger.debug("Part schema validation passed")
+        except ValidationError as e:
+            logger.error(f"Part schema validation failed: {e.messages}")
+            return jsonify({"error": "Validation failed", "details": e.messages}), 400
         
         if 'system_id' not in data:
+            logger.error("No system_id provided in part creation request")
             return jsonify({"error": "system_id is required"}), 400
             
+        logger.debug(f"Using system_id: {data['system_id']} for new part")
+            
         # Use the database adapter
-        part = current_app.db_adapter.create(TABLE_NAME, Part, data)
+        try:
+            part = current_app.db_adapter.create(TABLE_NAME, Part, data)
+            logger.debug(f"Part created successfully with ID: {part.get('id', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Database adapter failed to create part: {str(e)}")
+            return jsonify({"error": f"Failed to create part: {str(e)}"}), 500
         
         if not part:
+            logger.error("Database adapter returned None for created part")
             return jsonify({"error": "Failed to create part"}), 500
             
         return jsonify(part), 201
     except ValidationError as e:
+        logger.error(f"Validation error: {e.messages}")
         return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except Exception as e:
         logger.error(f"Error creating part: {str(e)}")
-        return jsonify({"error": "An error occurred while creating the part"}), 500
+        return jsonify({"error": f"An error occurred while creating the part: {str(e)}"}), 500
 
 @parts_bp.route('/parts/<part_id>', methods=['PUT'])
 @auth_required

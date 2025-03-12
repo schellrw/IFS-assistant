@@ -26,7 +26,7 @@ import axios from 'axios';
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const Dashboard = () => {
-  const { system, loading: ifsLoading, error: ifsError, journals, getJournals } = useIFS();
+  const { system, loading: ifsLoading, error: ifsError, journals, getJournals, isAuthenticated } = useIFS();
   const [connectionStatus, setConnectionStatus] = useState(null);
   const [error, setError] = useState(null);
   const [recentActivity, setRecentActivity] = useState([]);
@@ -76,12 +76,30 @@ const Dashboard = () => {
     testConnection();
   }, []);
 
+  // Effect to fetch recent activity and generate recommendations
   useEffect(() => {
-    const fetchRecentActivity = async () => {
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      if (loadingActivity || !isMounted) return;
+      
       setLoadingActivity(true);
+      
       try {
-        // Fetch journals if they aren't already loaded
-        const journalData = journals.length > 0 ? journals : await getJournals();
+        // Only try to fetch journals if we don't have any and we have a system
+        let journalData = [];
+        if (journals.length === 0 && system && system.id) {
+          try {
+            journalData = await getJournals();
+          } catch (err) {
+            console.error('Error loading journals:', err);
+            journalData = [];
+          }
+        } else {
+          journalData = journals;
+        }
+        
+        if (!isMounted) return;
         
         // Create combined activity list
         const allActivity = [];
@@ -89,41 +107,28 @@ const Dashboard = () => {
         // Add journal entries to activity
         if (journalData && journalData.length > 0) {
           journalData.slice(0, 5).forEach(journal => {
-            allActivity.push({
-              type: 'journal',
-              id: journal.id,
-              title: journal.title,
-              timestamp: new Date(journal.date),
-              associatedId: journal.part_id
-            });
+            if (journal && journal.id) {
+              allActivity.push({
+                type: 'journal',
+                id: journal.id,
+                title: journal.title || 'Untitled Journal',
+                timestamp: new Date(journal.date),
+                associatedId: journal.part_id
+              });
+            }
           });
         }
         
-        // Add part creation/updates to activity
+        // Add parts to activity (if available)
         if (system && system.parts) {
           Object.values(system.parts).forEach(part => {
-            // Skip the default "Self" part for activity tracking
-            if (part.name !== 'Self') {
-              if (part.created_at) {
-                allActivity.push({
-                  type: 'part_created',
-                  id: part.id,
-                  title: `Part "${part.name}" created`,
-                  timestamp: new Date(part.created_at),
-                  associatedId: part.id
-                });
-              }
-              
-              if (part.updated_at && part.updated_at !== part.created_at) {
-                allActivity.push({
-                  type: 'part_updated',
-                  id: part.id + '_update',
-                  title: `Part "${part.name}" updated`,
-                  timestamp: new Date(part.updated_at),
-                  associatedId: part.id
-                });
-              }
-            }
+            allActivity.push({
+              type: 'part',
+              id: part.id,
+              title: `Part created: "${part.name}"`,
+              timestamp: new Date(part.created_at || Date.now()),
+              associatedId: part.id
+            });
           });
         }
         
@@ -148,130 +153,99 @@ const Dashboard = () => {
           .sort((a, b) => b.timestamp - a.timestamp)
           .slice(0, 10);
           
-        setRecentActivity(sortedActivity);
-      } catch (err) {
-        console.error('Error fetching activity data:', err);
-      } finally {
-        setLoadingActivity(false);
-      }
-    };
-    
-    if (system || journals.length > 0) {
-      fetchRecentActivity();
-    }
-  }, [system, journals, getJournals]);
-
-  // Generate personalized recommendations based on system data
-  useEffect(() => {
-    if (!system || ifsLoading) return;
-    
-    const generateRecommendations = () => {
-      const newRecommendations = [];
-      
-      // Check if user has any journal entries
-      const hasJournals = journals && journals.length > 0;
-      
-      // Check when was the last journal entry
-      const lastJournalDate = hasJournals 
-        ? new Date(journals[0].date) 
-        : null;
-        
-      const daysSinceLastJournal = lastJournalDate 
-        ? differenceInDays(new Date(), lastJournalDate) 
-        : null;
-      
-      // Check if the user has created any parts (besides Self)
-      const userParts = system.parts ? Object.values(system.parts).filter(part => part.name !== 'Self') : [];
-      const hasCustomParts = userParts.length > 0;
-      
-      // Check if there are any relationships between parts
-      const hasRelationships = system.relationships && system.relationships.length > 0;
-      
-      // Recommendation 1: Journaling recommendation
-      if (!hasJournals) {
-        newRecommendations.push({
-          id: 'journal_first',
-          type: 'journal',
-          title: 'Start Your Journal',
-          description: 'Journaling helps track your progress and insights. Try writing your first entry.',
-          action: () => navigate('/journal', { 
-            state: { selectedPrompt: currentPrompt } 
-          })
-        });
-      } else if (daysSinceLastJournal > 3) {
-        newRecommendations.push({
-          id: 'journal_reminder',
-          type: 'journal',
-          title: 'Time for a Journal Check-in',
-          description: `It's been ${daysSinceLastJournal} days since your last journal entry. Consider checking in with how you're feeling today.`,
-          action: () => navigate('/journal', { 
-            state: { selectedPrompt: currentPrompt } 
-          })
-        });
-      }
-      
-      // Recommendation 2: Parts creation
-      if (!hasCustomParts) {
-        newRecommendations.push({
-          id: 'create_first_part',
-          type: 'part',
-          title: 'Identify Your First Part',
-          description: 'Start by identifying one part of your internal system. What part of you do you notice most often?',
-          action: () => navigate('/parts/new')
-        });
-      } else if (userParts.length < 3) {
-        newRecommendations.push({
-          id: 'create_more_parts',
-          type: 'part',
-          title: 'Discover More Parts',
-          description: 'Most people have many different parts. Try identifying more parts that you notice in your daily life.',
-          action: () => navigate('/parts/new')
-        });
-      }
-      
-      // Recommendation 3: Relationships between parts
-      if (hasCustomParts && !hasRelationships && userParts.length > 1) {
-        newRecommendations.push({
-          id: 'create_relationships',
-          type: 'relationship',
-          title: 'Connect Your Parts',
-          description: 'Explore how your parts might relate to each other by creating relationships in your system map.',
-          action: () => navigate('/system-map')
-        });
-      }
-      
-      // Recommendation 4: Check in with a specific part
-      if (hasCustomParts && userParts.length > 0) {
-        // Find a part that hasn't been updated recently or pick a random one
-        let partToCheckIn = userParts[0];
-        
-        // If we have multiple parts, try to find one that hasn't been updated recently
-        if (userParts.length > 1) {
-          const partsWithDates = userParts
-            .filter(part => part.updated_at)
-            .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
-            
-          if (partsWithDates.length > 0) {
-            partToCheckIn = partsWithDates[0];
+        if (isMounted) {
+          setRecentActivity(sortedActivity);
+          
+          // Generate personalized recommendations
+          const newRecommendations = [];
+          
+          // Add recommendations based on system state
+          const partsCount = system && system.parts ? Object.keys(system.parts).length : 0;
+          
+          if (partsCount === 0) {
+            newRecommendations.push({
+              type: 'parts',
+              title: 'Identify Your First Part',
+              description: 'Start by identifying your first internal part to begin mapping your system.',
+              action: 'Create Part',
+              path: '/parts/new'
+            });
+          } else if (partsCount < 3) {
+            newRecommendations.push({
+              type: 'parts',
+              title: 'Add More Parts',
+              description: 'Continue identifying internal parts to better understand your system.',
+              action: 'Create Part',
+              path: '/parts/new'
+            });
           }
+          
+          // Journal recommendations
+          const journalsCount = journalData.length;
+          
+          if (journalsCount === 0) {
+            newRecommendations.push({
+              type: 'journal',
+              title: 'Start Your Journal',
+              description: 'Record your first journal entry to track your IFS journey.',
+              action: 'New Journal',
+              path: '/journal'
+            });
+          } else if (journalsCount < 5) {
+            newRecommendations.push({
+              type: 'journal',
+              title: 'Continue Journaling',
+              description: 'Regular journaling helps track progress and gain insights.',
+              action: 'New Journal',
+              path: '/journal'
+            });
+          }
+          
+          // Relationship recommendations if we have multiple parts
+          if (partsCount >= 2 && (!system.relationships || Object.keys(system.relationships).length === 0)) {
+            newRecommendations.push({
+              type: 'relationship',
+              title: 'Map Relationships',
+              description: 'Start connecting parts to understand how they interact with each other.',
+              action: 'Add Relationship',
+              path: '/relationships'
+            });
+          }
+          
+          // Additional recommendations
+          newRecommendations.push({
+            type: 'visualization',
+            title: 'Visualize Your System',
+            description: 'See a visual representation of your internal family system.',
+            action: 'View Map',
+            path: '/map'
+          });
+          
+          // Shuffle and select 3 recommendations
+          const shuffled = newRecommendations.sort(() => 0.5 - Math.random());
+          setRecommendations(shuffled.slice(0, 3));
         }
-        
-        newRecommendations.push({
-          id: `checkin_${partToCheckIn.id}`,
-          type: 'part_checkin',
-          title: `Check in with "${partToCheckIn.name}"`,
-          description: `It might be a good time to check in with your "${partToCheckIn.name}" part and see how it's doing.`,
-          action: () => navigate(`/parts/${partToCheckIn.id}`, { state: { from: 'dashboard' } })
-        });
+      } catch (err) {
+        console.error('Error in dashboard data loading:', err);
+        if (isMounted) {
+          setRecentActivity([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingActivity(false);
+        }
       }
-      
-      // Shuffle and limit recommendations to 3
-      const shuffled = newRecommendations.sort(() => 0.5 - Math.random());
-      setRecommendations(shuffled.slice(0, 3));
     };
     
-    generateRecommendations();
-  }, [system, journals, ifsLoading, navigate]);
+    if (isAuthenticated && system) {
+      fetchData();
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, system, journals.length, loadingActivity]);
 
   const handleActivityClick = (type, id) => {
     if (type === 'journal') {
@@ -499,9 +473,9 @@ const Dashboard = () => {
                         <Button 
                           size="small" 
                           endIcon={<NavigateNextIcon />}
-                          onClick={recommendation.action}
+                          onClick={() => navigate(recommendation.path)}
                         >
-                          Get Started
+                          {recommendation.action}
                         </Button>
                       </CardActions>
                     </Card>

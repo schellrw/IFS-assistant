@@ -7,6 +7,7 @@ from typing import Dict, Any
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func as sql_func
 
 from . import db
 
@@ -15,14 +16,16 @@ class Relationship(db.Model):
     __tablename__ = 'relationships'
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    source_id = Column(UUID(as_uuid=True), ForeignKey('parts.id'), nullable=False)
-    target_id = Column(UUID(as_uuid=True), ForeignKey('parts.id'), nullable=False)
+    # Use part1_id and part2_id as they exist in Supabase
+    part1_id = Column(UUID(as_uuid=True), ForeignKey('parts.id'), nullable=False)
+    part2_id = Column(UUID(as_uuid=True), ForeignKey('parts.id'), nullable=False)
     relationship_type = Column(String(100), nullable=False)
     description = Column(Text)
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, server_default=sql_func.now())
+    updated_at = Column(DateTime, server_default=sql_func.now(), onupdate=sql_func.now())
     
     # The system this relationship belongs to
-    system_id = Column(UUID(as_uuid=True), ForeignKey('systems.id'), nullable=False)
+    system_id = Column(UUID(as_uuid=True), ForeignKey('ifs_systems.id'), nullable=False)
     
     def __init__(self, source_id: str, target_id: str, relationship_type: str, 
                  system_id: str, description: str = ""):
@@ -35,8 +38,9 @@ class Relationship(db.Model):
             system_id: UUID of the system this relationship belongs to.
             description: Optional description of the relationship.
         """
-        self.source_id = source_id
-        self.target_id = target_id
+        # Map source_id to part1_id and target_id to part2_id
+        self.part1_id = source_id
+        self.part2_id = target_id
         self.relationship_type = relationship_type
         self.description = description
         self.system_id = system_id
@@ -49,12 +53,13 @@ class Relationship(db.Model):
         """
         return {
             "id": str(self.id),
-            "source_id": str(self.source_id),
-            "target_id": str(self.target_id),
+            # Return as source_id and target_id for frontend compatibility
+            "source_id": str(self.part1_id),
+            "target_id": str(self.part2_id),
             "relationship_type": self.relationship_type,
             "description": self.description,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
     
     def __repr__(self) -> str:
-        return f"<Relationship {self.relationship_type}: {self.source_id} -> {self.target_id}>" 
+        return f"<Relationship {self.relationship_type}: {self.part1_id} -> {self.part2_id}>" 

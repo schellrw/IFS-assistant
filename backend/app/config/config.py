@@ -7,7 +7,15 @@ from urllib.parse import quote_plus, urlparse, urlunparse
 def get_db_url():
     """Get database URL with encoded password."""
     db_url = os.environ.get('DATABASE_URL')
-    if db_url and db_url.startswith('postgresql://'):
+    
+    if not db_url:
+        return None
+    
+    # Fix for SQLAlchemy 1.4+ which requires 'postgresql://' instead of 'postgres://'
+    if db_url.startswith('postgres://'):
+        db_url = db_url.replace('postgres://', 'postgresql://', 1)
+    
+    if db_url.startswith('postgresql://'):
         # Parse the URL to extract components
         parsed = urlparse(db_url)
         userinfo = parsed.netloc.split('@')[0]
@@ -37,7 +45,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # CORS settings
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(',')
+    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',')
     
     # Logging
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')

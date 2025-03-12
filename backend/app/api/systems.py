@@ -8,6 +8,7 @@ from marshmallow import Schema, fields, validate, ValidationError
 import uuid
 
 from ..models import db, IFSSystem, Part
+from ..utils.auth_adapter import auth_required
 
 systems_bp = Blueprint('systems', __name__)
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ class SystemSchema(Schema):
     description = fields.String(allow_none=True)
 
 @systems_bp.route('/system', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_system():
     """Get the user's IFS system.
     
@@ -27,7 +28,7 @@ def get_system():
         JSON response with the user's system, or creates one if it doesn't exist.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         # Create a system if it doesn't exist
@@ -35,21 +36,25 @@ def get_system():
             logger.info(f"Creating new system for user {user_id}")
             system = IFSSystem(
                 user_id=user_id,
-                name="My IFS System",
-                description="Default IFS system"
+                name="My IFS System",  # This will be ignored since column doesn't exist in DB
+                description="Default IFS system"  # This will be ignored since column doesn't exist in DB
             )
             
-            # Create the default "Self" part
+            # Add and commit the system first to get an ID
+            db.session.add(system)
+            db.session.commit()
+            
+            # Now create the default "Self" part with the valid system ID
             self_part = Part(
                 name="Self",
                 role="Core Self",
                 description="The centered, compassionate Self that is the goal of IFS therapy.",
-                feelings="Calm, curious, compassionate, connected, clear, confident, creative, courageous",
-                beliefs="All parts are welcome. I can hold space for all experiences.",
+                feelings=["Calm", "curious", "compassionate", "connected", "clear", "confident", "creative", "courageous"],
+                beliefs=["All parts are welcome. I can hold space for all experiences."],
                 system_id=str(system.id)
             )
             
-            db.session.add(system)
+            # Add and commit the Self part separately
             db.session.add(self_part)
             db.session.commit()
             
@@ -71,7 +76,7 @@ def get_system():
         return jsonify({"error": str(e)}), 500
 
 @systems_bp.route('/system', methods=['PUT'])
-@jwt_required()
+@auth_required
 def update_system():
     """Update the user's IFS system.
     
@@ -79,7 +84,7 @@ def update_system():
         JSON response with the updated system.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -114,7 +119,7 @@ def update_system():
         return jsonify({"error": str(e)}), 500
 
 @systems_bp.route('/system/overview', methods=['GET'])
-@jwt_required()
+@auth_required
 def get_system_overview():
     """Get a comprehensive overview of the user's IFS system.
     
@@ -122,7 +127,7 @@ def get_system_overview():
         JSON response with the system overview including parts and relationships count.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -138,8 +143,8 @@ def get_system_overview():
             """
             SELECT COUNT(*) 
             FROM relationship r
-            JOIN part p1 ON r.source_id = p1.id
-            JOIN part p2 ON r.target_id = p2.id
+            JOIN part p1 ON r.part1_id = p1.id
+            JOIN part p2 ON r.part2_id = p2.id
             WHERE p1.system_id = :system_id AND p2.system_id = :system_id
             """,
             {"system_id": str(system.id)}
@@ -173,7 +178,7 @@ def get_system_overview():
         return jsonify({"error": str(e)}), 500
 
 @systems_bp.route('/system/reset', methods=['POST'])
-@jwt_required()
+@auth_required
 def reset_system():
     """Reset the user's IFS system (delete all parts, relationships, and journal entries).
     
@@ -181,7 +186,7 @@ def reset_system():
         JSON response indicating success or failure.
     """
     try:
-        user_id = get_jwt_identity()
+        user_id = g.current_user['id'] if hasattr(g, 'current_user') else get_jwt_identity()
         system = IFSSystem.query.filter_by(user_id=user_id).first()
         
         if not system:
@@ -192,8 +197,8 @@ def reset_system():
         db.session.execute(
             """
             DELETE FROM relationship
-            WHERE source_id IN (SELECT id FROM part WHERE system_id = :system_id)
-            OR target_id IN (SELECT id FROM part WHERE system_id = :system_id)
+            WHERE part1_id IN (SELECT id FROM part WHERE system_id = :system_id)
+            OR part2_id IN (SELECT id FROM part WHERE system_id = :system_id)
             """,
             {"system_id": str(system.id)}
         )
