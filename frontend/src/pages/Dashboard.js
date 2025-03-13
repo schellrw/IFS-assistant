@@ -159,6 +159,8 @@ const Dashboard = () => {
               name: part.name,
               updated_at: part.updated_at,
               created_at: part.created_at,
+              description: part.description,
+              role: part.role,
               feelings: [...(part.feelings || [])],
               beliefs: [...(part.beliefs || [])],
               triggers: [...(part.triggers || [])],
@@ -330,9 +332,16 @@ const Dashboard = () => {
               const triggersChanged = JSON.stringify(previousPart.triggers) !== JSON.stringify(part.triggers || []);
               const needsChanged = JSON.stringify(previousPart.needs) !== JSON.stringify(part.needs || []);
               
-              // Check for description or role changes
-              const descriptionChanged = previousPart.description !== part.description;
-              const roleChanged = previousPart.role !== part.role;
+              // Check for description or role changes - handle undefined/null values properly
+              // Normalize values to make comparison more reliable against empty strings, null, undefined
+              const normalizeValue = (val) => {
+                return val === null || val === undefined || val === '' ? null : val;
+              };
+              
+              const descriptionChanged = 
+                normalizeValue(previousPart.description) !== normalizeValue(part.description);
+              const roleChanged = 
+                normalizeValue(previousPart.role) !== normalizeValue(part.role);
               
               const hasContentChanged = feelingsChanged || beliefsChanged || triggersChanged || 
                                         needsChanged || descriptionChanged || roleChanged;
@@ -362,7 +371,12 @@ const Dashboard = () => {
                   triggersChanged,
                   needsChanged,
                   descriptionChanged,
-                  roleChanged
+                  roleChanged,
+                  // Add complete field values to see the actual data
+                  previousDescription: previousPart.description,
+                  currentDescription: part.description,
+                  previousRole: previousPart.role,
+                  currentRole: part.role
                 });
               }
               
@@ -372,103 +386,212 @@ const Dashboard = () => {
                   console.log(`Part "${part.name}" has updates - processing changes`);
                 }
                 
-                // Capture the specific changes
-                
-                // Compare feelings
-                if (feelingsChanged) {
-                  // Find what feelings were added (those in current but not in previous)
-                  const newFeelings = (part.feelings || []).filter(
-                    feeling => !previousPart.feelings.includes(feeling)
-                  );
-                  
-                  if (newFeelings.length > 0) {
-                    partUpdates.push({
-                      type: 'part_updated',
-                      id: `${part.id}-updated-feelings-${Date.now()}`,
-                      title: `Added feelings to "${part.name}": ${newFeelings.join(', ')}`,
-                      timestamp: updatedTimestamp,
-                      associatedId: part.id,
-                      updateType: 'feelings',
-                      sortKey: updatedTimestamp.getTime()
+                // Capture the specific changes for feelings, beliefs, triggers, and needs
+                if (feelingsChanged || beliefsChanged || triggersChanged || needsChanged) {
+                  if (DEBUG) {
+                    console.log(`Part "${part.name}" has attribute changes:`, {
+                      feelingsChanged,
+                      beliefsChanged,
+                      triggersChanged,
+                      needsChanged,
+                      previousFeelings: previousPart.feelings || [],
+                      currentFeelings: part.feelings || [],
+                      previousBeliefs: previousPart.beliefs || [],
+                      currentBeliefs: part.beliefs || [],
+                      previousTriggers: previousPart.triggers || [],
+                      currentTriggers: part.triggers || [],
+                      previousNeeds: previousPart.needs || [],
+                      currentNeeds: part.needs || [],
                     });
                   }
-                }
-                
-                // Compare beliefs
-                if (beliefsChanged) {
-                  // Find what beliefs were added
-                  const newBeliefs = (part.beliefs || []).filter(
-                    belief => !previousPart.beliefs.includes(belief)
-                  );
                   
-                  if (newBeliefs.length > 0) {
-                    partUpdates.push({
-                      type: 'part_updated',
-                      id: `${part.id}-updated-beliefs-${Date.now()}`,
-                      title: `Added beliefs to "${part.name}": ${newBeliefs.join(', ')}`,
-                      timestamp: updatedTimestamp,
-                      associatedId: part.id,
-                      updateType: 'beliefs',
-                      sortKey: updatedTimestamp.getTime()
-                    });
+                  // Compare feelings
+                  if (feelingsChanged) {
+                    // Find what feelings were added (those in current but not in previous)
+                    const newFeelings = (part.feelings || []).filter(
+                      feeling => !(previousPart.feelings || []).includes(feeling)
+                    );
+                    
+                    if (newFeelings.length > 0) {
+                      console.log(`Adding ${newFeelings.length} new feelings to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-updated-feelings-${Date.now()}`,
+                        title: `Added feelings to "${part.name}": ${newFeelings.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'feelings',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
+                    
+                    // Find what feelings were removed
+                    const removedFeelings = (previousPart.feelings || []).filter(
+                      feeling => !(part.feelings || []).includes(feeling)
+                    );
+                    
+                    if (removedFeelings.length > 0) {
+                      console.log(`Adding ${removedFeelings.length} removed feelings to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-removed-feelings-${Date.now()}`,
+                        title: `Removed feelings from "${part.name}": ${removedFeelings.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'feelings',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
                   }
-                }
-                
-                // Compare triggers
-                if (triggersChanged) {
-                  // Find what triggers were added
-                  const newTriggers = (part.triggers || []).filter(
-                    trigger => !previousPart.triggers.includes(trigger)
-                  );
                   
-                  if (newTriggers.length > 0) {
-                    partUpdates.push({
-                      type: 'part_updated',
-                      id: `${part.id}-updated-triggers-${Date.now()}`,
-                      title: `Added triggers to "${part.name}": ${newTriggers.join(', ')}`,
-                      timestamp: updatedTimestamp,
-                      associatedId: part.id,
-                      updateType: 'triggers',
-                      sortKey: updatedTimestamp.getTime()
-                    });
+                  // Compare beliefs
+                  if (beliefsChanged) {
+                    // Find what beliefs were added
+                    const newBeliefs = (part.beliefs || []).filter(
+                      belief => !(previousPart.beliefs || []).includes(belief)
+                    );
+                    
+                    if (newBeliefs.length > 0) {
+                      console.log(`Adding ${newBeliefs.length} new beliefs to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-updated-beliefs-${Date.now()}`,
+                        title: `Added beliefs to "${part.name}": ${newBeliefs.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'beliefs',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
+                    
+                    // Find what beliefs were removed
+                    const removedBeliefs = (previousPart.beliefs || []).filter(
+                      belief => !(part.beliefs || []).includes(belief)
+                    );
+                    
+                    if (removedBeliefs.length > 0) {
+                      console.log(`Adding ${removedBeliefs.length} removed beliefs to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-removed-beliefs-${Date.now()}`,
+                        title: `Removed beliefs from "${part.name}": ${removedBeliefs.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'beliefs',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
                   }
-                }
-                
-                // Compare needs
-                if (needsChanged) {
-                  // Find what needs were added
-                  const newNeeds = (part.needs || []).filter(
-                    need => !previousPart.needs.includes(need)
-                  );
                   
-                  if (newNeeds.length > 0) {
-                    partUpdates.push({
-                      type: 'part_updated',
-                      id: `${part.id}-updated-needs-${Date.now()}`,
-                      title: `Added needs to "${part.name}": ${newNeeds.join(', ')}`,
-                      timestamp: updatedTimestamp,
-                      associatedId: part.id,
-                      updateType: 'needs',
-                      sortKey: updatedTimestamp.getTime()
-                    });
+                  // Compare triggers
+                  if (triggersChanged) {
+                    // Find what triggers were added
+                    const newTriggers = (part.triggers || []).filter(
+                      trigger => !(previousPart.triggers || []).includes(trigger)
+                    );
+                    
+                    if (newTriggers.length > 0) {
+                      console.log(`Adding ${newTriggers.length} new triggers to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-updated-triggers-${Date.now()}`,
+                        title: `Added triggers to "${part.name}": ${newTriggers.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'triggers',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
+                    
+                    // Find what triggers were removed
+                    const removedTriggers = (previousPart.triggers || []).filter(
+                      trigger => !(part.triggers || []).includes(trigger)
+                    );
+                    
+                    if (removedTriggers.length > 0) {
+                      console.log(`Adding ${removedTriggers.length} removed triggers to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-removed-triggers-${Date.now()}`,
+                        title: `Removed triggers from "${part.name}": ${removedTriggers.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'triggers',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
+                  }
+                  
+                  // Compare needs
+                  if (needsChanged) {
+                    // Find what needs were added
+                    const newNeeds = (part.needs || []).filter(
+                      need => !(previousPart.needs || []).includes(need)
+                    );
+                    
+                    if (newNeeds.length > 0) {
+                      console.log(`Adding ${newNeeds.length} new needs to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-updated-needs-${Date.now()}`,
+                        title: `Added needs to "${part.name}": ${newNeeds.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'needs',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
+                    
+                    // Find what needs were removed
+                    const removedNeeds = (previousPart.needs || []).filter(
+                      need => !(part.needs || []).includes(need)
+                    );
+                    
+                    if (removedNeeds.length > 0) {
+                      console.log(`Adding ${removedNeeds.length} removed needs to activity feed for "${part.name}"`);
+                      partUpdates.push({
+                        type: 'part_updated',
+                        id: `${part.id}-removed-needs-${Date.now()}`,
+                        title: `Removed needs from "${part.name}": ${removedNeeds.join(', ')}`,
+                        timestamp: updatedTimestamp,
+                        associatedId: part.id,
+                        updateType: 'needs',
+                        sortKey: updatedTimestamp.getTime()
+                      });
+                    }
+                  }
+                  
+                  // Log total number of part updates for debugging
+                  if (DEBUG && partUpdates.length > 0) {
+                    console.log(`Generated ${partUpdates.length} part updates in total for "${part.name}"`);
                   }
                 }
                 
                 // Look for role or description changes
                 if (descriptionChanged || roleChanged) {
-                  let changes = [];
-                  if (descriptionChanged) changes.push('description');
-                  if (roleChanged) changes.push('role');
+                  // Check if the changes are meaningful (not just null/undefined/empty string changes)
+                  const hasDescriptionChange = normalizeValue(part.description) !== null &&
+                                              normalizeValue(previousPart.description) !== normalizeValue(part.description);
                   
-                  partUpdates.push({
-                    type: 'part_updated',
-                    id: `${part.id}-updated-details-${Date.now()}`,
-                    title: `Updated ${changes.join(' and ')} for "${part.name}"`,
-                    timestamp: updatedTimestamp,
-                    associatedId: part.id,
-                    updateType: 'details',
-                    sortKey: updatedTimestamp.getTime()
-                  });
+                  const hasRoleChange = normalizeValue(part.role) !== null &&
+                                       normalizeValue(previousPart.role) !== normalizeValue(part.role);
+                  
+                  // Only add to activity if there are meaningful changes
+                  if (hasDescriptionChange || hasRoleChange) {
+                    let changes = [];
+                    if (hasDescriptionChange) changes.push('description');
+                    if (hasRoleChange) changes.push('role');
+                    
+                    partUpdates.push({
+                      type: 'part_updated',
+                      id: `${part.id}-updated-details-${Date.now()}`,
+                      title: `Updated ${changes.join(' and ')} for "${part.name}"`,
+                      timestamp: updatedTimestamp,
+                      associatedId: part.id,
+                      updateType: 'details',
+                      sortKey: updatedTimestamp.getTime()
+                    });
+                  }
                 }
                 
                 // If we detected content changes but couldn't identify specific attribute changes,
