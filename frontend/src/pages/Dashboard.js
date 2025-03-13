@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Container, Typography, Box, Grid, Paper, Alert, List, ListItem,
   ListItemText, ListItemIcon, Divider, Button, Chip, CircularProgress,
@@ -16,7 +16,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DonutLargeIcon from '@mui/icons-material/DonutLarge';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import { format, formatDistanceToNow, differenceInDays } from 'date-fns';
+import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
 import { useIFS } from '../context/IFSContext';
 import { REFLECTIVE_PROMPTS } from '../constants';
 import { PartsDistributionChart, EmotionsChart, MiniSystemMap } from '../components';
@@ -24,6 +24,107 @@ import axios from 'axios';
 
 // Configure API base URL - can be changed via environment variable later
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+// Add a debug flag at the top of the file, after imports
+const DEBUG = process.env.NODE_ENV === 'development';
+
+/**
+ * Parse a timestamp string into a Date object
+ * Handles different timestamp formats and validates the result
+ * 
+ * @param {string} timestamp - The timestamp string to parse
+ * @returns {Date} A valid Date object
+ */
+const parseTimestamp = (timestamp) => {
+  if (!timestamp) {
+    if (DEBUG) console.warn('Empty timestamp provided, using current time');
+    return new Date();
+  }
+  
+  try {
+    // Try parsing as ISO string first
+    const date = parseISO(timestamp);
+    
+    // Check if the result is valid
+    if (isValid(date)) {
+      return date;
+    }
+    
+    // If not a valid ISO format, try as a regular date string
+    const regularDate = new Date(timestamp);
+    
+    // Final validity check
+    if (isValid(regularDate) && !isNaN(regularDate.getTime())) {
+      return regularDate;
+    }
+    
+    throw new Error('Invalid timestamp format');
+  } catch (error) {
+    console.error(`Failed to parse timestamp "${timestamp}":`, error);
+    return new Date();
+  }
+};
+
+/**
+ * Check if a date is unreasonably in the future
+ * Allows for small clock differences (up to 5 minutes)
+ * 
+ * @param {Date} date - Date to check
+ * @returns {boolean} Whether the date is in the future
+ */
+const isUnreasonablyInFuture = (date) => {
+  const now = new Date();
+  const fiveMinutesInFuture = new Date(now.getTime() + 5 * 60 * 1000);
+  return date > fiveMinutesInFuture;
+};
+
+// Add a cache for timestamp adjustments to prevent repeated adjustments
+const timestampAdjustments = {};
+
+/**
+ * Get a stable timestamp for an item
+ * Ensures future dates are adjusted consistently
+ * 
+ * @param {string} id - Unique ID for the item
+ * @param {string} rawTimestamp - Raw timestamp string
+ * @returns {Date} A stable Date object
+ */
+const getStableTimestamp = (id, rawTimestamp) => {
+  // If we've already adjusted this timestamp before, use the cached value
+  if (timestampAdjustments[id]) {
+    return new Date(timestampAdjustments[id]);
+  }
+  
+  // Parse the timestamp
+  const timestamp = parseTimestamp(rawTimestamp);
+  
+  // Check if it's unreasonably in the future
+  if (isUnreasonablyInFuture(timestamp)) {
+    if (DEBUG) {
+      console.warn(`Item ${id} has timestamp too far in the future, adjusting:`, {
+        originalTimestamp: timestamp.toISOString(),
+        difference: `${Math.round((timestamp - new Date()) / 1000 / 60)} minutes`
+      });
+    }
+    
+    // Use a stable timestamp slightly in the past
+    const adjustedTime = new Date(Date.now() - 10 * 60 * 1000);
+    
+    // Cache the adjustment
+    timestampAdjustments[id] = adjustedTime.toISOString();
+    
+    return adjustedTime;
+  }
+  
+  // For valid timestamps, still cache them to ensure stability
+  timestampAdjustments[id] = timestamp.toISOString();
+  
+  return timestamp;
+};
+
+// Preload date-fns format to prevent format changes between renders
+const TIME_FORMAT = 'PPP p';
+const formatDateTime = (date) => format(date, TIME_FORMAT);
 
 const Dashboard = () => {
   const { system, loading: ifsLoading, error: ifsError, journals, getJournals, isAuthenticated } = useIFS();
@@ -35,6 +136,56 @@ const Dashboard = () => {
   const [currentPrompt, setCurrentPrompt] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Add state for tracking previous part data to detect real changes
+  const [previousPartsState, setPreviousPartsState] = useState({});
+  // Track when we last processed part updates
+  const [lastUpdateCheck, setLastUpdateCheck] = useState(Date.now());
+  
+  // Effect to update the previous parts state when system changes
+  useEffect(() => {
+    if (system && system.parts) {
+      console.log("Updating previous parts state with new system data");
+      setPreviousPartsState(prev => {
+        // Only update parts that are different to avoid infinite loops
+        const newState = { ...prev };
+        
+        Object.values(system.parts).forEach(part => {
+          // If part exists in prev state and hasn't been modified, keep it
+          // Otherwise, update with current state
+          if (!prev[part.id] || prev[part.id].updated_at !== part.updated_at) {
+            newState[part.id] = {
+              id: part.id,
+              name: part.name,
+              updated_at: part.updated_at,
+              created_at: part.created_at,
+              feelings: [...(part.feelings || [])],
+              beliefs: [...(part.beliefs || [])],
+              triggers: [...(part.triggers || [])],
+              needs: [...(part.needs || [])]
+            };
+          }
+        });
+        
+        return newState;
+      });
+      
+      // Force activity refresh when system changes
+      setLastUpdateCheck(Date.now());
+    }
+  }, [system]);
+
+  // For debugging
+  useEffect(() => {
+    if (system && journals) {
+      console.log('Dashboard detected changes in system or journals:', {
+        systemId: system?.id,
+        partsCount: system?.parts ? Object.keys(system.parts).length : 0,
+        journalCount: journals?.length || 0,
+        isAuthenticated: isAuthenticated
+      });
+    }
+  }, [system, journals, isAuthenticated]);
 
   // Get a random reflective prompt
   const getRandomPrompt = () => {
@@ -81,22 +232,31 @@ const Dashboard = () => {
     let isMounted = true;
     
     const fetchData = async () => {
-      if (loadingActivity || !isMounted) return;
+      if (!isMounted) return;
       
       setLoadingActivity(true);
       
       try {
-        // Only try to fetch journals if we don't have any and we have a system
-        let journalData = [];
-        if (journals.length === 0 && system && system.id) {
-          try {
-            journalData = await getJournals();
-          } catch (err) {
-            console.error('Error loading journals:', err);
-            journalData = [];
-          }
-        } else {
-          journalData = journals;
+        if (DEBUG) {
+          console.log("Beginning fetchData execution with data:", {
+            hasSystem: !!system,
+            systemId: system?.id,
+            journalsAvailable: !!journals,
+            journalCount: journals?.length || 0,
+            isAuthenticated,
+            lastUpdateCheck
+          });
+        }
+        
+        // Use journals from context directly instead of fetching again
+        let journalData = journals || [];
+        
+        if (DEBUG) {
+          console.log("Dashboard data processing:", {
+            journalCount: journalData.length,
+            systemParts: system?.parts ? Object.keys(system.parts).length : 0,
+            systemRelationships: system?.relationships ? Object.keys(system.relationships).length : 0
+          });
         }
         
         if (!isMounted) return;
@@ -106,14 +266,30 @@ const Dashboard = () => {
         
         // Add journal entries to activity
         if (journalData && journalData.length > 0) {
-          journalData.slice(0, 5).forEach(journal => {
+          if (DEBUG) {
+            console.log("Processing journals for activity:", 
+              journalData.map(j => ({
+                id: j.id,
+                title: j.title,
+                date: j.date,
+                created_at: j.created_at
+              })).slice(0, 2)
+            );
+          }
+          
+          journalData.forEach(journal => {
             if (journal && journal.id) {
+              // Use created_at first, then date, then fallback to now
+              const rawTimestamp = journal.created_at || journal.date;
+              const timestamp = getStableTimestamp(journal.id, rawTimestamp);
+              
               allActivity.push({
                 type: 'journal',
                 id: journal.id,
                 title: journal.title || 'Untitled Journal',
-                timestamp: new Date(journal.date),
-                associatedId: journal.part_id
+                timestamp,
+                associatedId: journal.id,
+                sortKey: timestamp.getTime()  // Use for stable sorting
               });
             }
           });
@@ -121,40 +297,272 @@ const Dashboard = () => {
         
         // Add parts to activity (if available)
         if (system && system.parts) {
+          if (DEBUG) {
+            console.log("Processing parts for activity");
+          }
+          
           Object.values(system.parts).forEach(part => {
-            allActivity.push({
-              type: 'part',
-              id: part.id,
-              title: `Part created: "${part.name}"`,
-              timestamp: new Date(part.created_at || Date.now()),
-              associatedId: part.id
-            });
+            // Track all part updates for this run to ensure we show the most recent one
+            const partUpdates = [];
+            
+            // Add part creation to activity if it has a created_at timestamp
+            if (part.created_at) {
+              const createdTimestamp = getStableTimestamp(`${part.id}-created`, part.created_at);
+              
+              partUpdates.push({
+                type: 'part_created',
+                id: `${part.id}-created`,
+                title: `Part created: "${part.name}"`,
+                timestamp: createdTimestamp,
+                associatedId: part.id,
+                sortKey: createdTimestamp.getTime()
+              });
+            }
+            
+            // Only detect genuine updates by comparing with previous state
+            const previousPart = previousPartsState[part.id];
+            
+            // Detect actual content changes between previous and current state
+            if (previousPart) {
+              // Check for content changes by comparing stringified arrays
+              const feelingsChanged = JSON.stringify(previousPart.feelings) !== JSON.stringify(part.feelings || []);
+              const beliefsChanged = JSON.stringify(previousPart.beliefs) !== JSON.stringify(part.beliefs || []);
+              const triggersChanged = JSON.stringify(previousPart.triggers) !== JSON.stringify(part.triggers || []);
+              const needsChanged = JSON.stringify(previousPart.needs) !== JSON.stringify(part.needs || []);
+              
+              // Check for description or role changes
+              const descriptionChanged = previousPart.description !== part.description;
+              const roleChanged = previousPart.role !== part.role;
+              
+              const hasContentChanged = feelingsChanged || beliefsChanged || triggersChanged || 
+                                        needsChanged || descriptionChanged || roleChanged;
+              
+              // Use updated_at if available, or create a synthetic one
+              let updatedTimestamp;
+              
+              if (part.updated_at && part.updated_at !== part.created_at) {
+                // Use the provided timestamp
+                updatedTimestamp = getStableTimestamp(`${part.id}-updated`, part.updated_at);
+              } else if (hasContentChanged) {
+                // Create a synthetic timestamp for sorting purposes
+                updatedTimestamp = new Date(); 
+                
+                if (DEBUG) {
+                  console.log(`No updated_at timestamp for part "${part.name}" despite content changes, using current time`);
+                }
+              }
+              
+              if (DEBUG) {
+                console.log(`Checking part "${part.name}" for changes:`, {
+                  id: part.id,
+                  hasTimestamp: !!part.updated_at,
+                  hasContentChanged,
+                  feelingsChanged,
+                  beliefsChanged,
+                  triggersChanged,
+                  needsChanged,
+                  descriptionChanged,
+                  roleChanged
+                });
+              }
+              
+              // If we have content changes and a timestamp, add specific updates
+              if (hasContentChanged && updatedTimestamp) {
+                if (DEBUG) {
+                  console.log(`Part "${part.name}" has updates - processing changes`);
+                }
+                
+                // Capture the specific changes
+                
+                // Compare feelings
+                if (feelingsChanged) {
+                  // Find what feelings were added (those in current but not in previous)
+                  const newFeelings = (part.feelings || []).filter(
+                    feeling => !previousPart.feelings.includes(feeling)
+                  );
+                  
+                  if (newFeelings.length > 0) {
+                    partUpdates.push({
+                      type: 'part_updated',
+                      id: `${part.id}-updated-feelings-${Date.now()}`,
+                      title: `Added feelings to "${part.name}": ${newFeelings.join(', ')}`,
+                      timestamp: updatedTimestamp,
+                      associatedId: part.id,
+                      updateType: 'feelings',
+                      sortKey: updatedTimestamp.getTime()
+                    });
+                  }
+                }
+                
+                // Compare beliefs
+                if (beliefsChanged) {
+                  // Find what beliefs were added
+                  const newBeliefs = (part.beliefs || []).filter(
+                    belief => !previousPart.beliefs.includes(belief)
+                  );
+                  
+                  if (newBeliefs.length > 0) {
+                    partUpdates.push({
+                      type: 'part_updated',
+                      id: `${part.id}-updated-beliefs-${Date.now()}`,
+                      title: `Added beliefs to "${part.name}": ${newBeliefs.join(', ')}`,
+                      timestamp: updatedTimestamp,
+                      associatedId: part.id,
+                      updateType: 'beliefs',
+                      sortKey: updatedTimestamp.getTime()
+                    });
+                  }
+                }
+                
+                // Compare triggers
+                if (triggersChanged) {
+                  // Find what triggers were added
+                  const newTriggers = (part.triggers || []).filter(
+                    trigger => !previousPart.triggers.includes(trigger)
+                  );
+                  
+                  if (newTriggers.length > 0) {
+                    partUpdates.push({
+                      type: 'part_updated',
+                      id: `${part.id}-updated-triggers-${Date.now()}`,
+                      title: `Added triggers to "${part.name}": ${newTriggers.join(', ')}`,
+                      timestamp: updatedTimestamp,
+                      associatedId: part.id,
+                      updateType: 'triggers',
+                      sortKey: updatedTimestamp.getTime()
+                    });
+                  }
+                }
+                
+                // Compare needs
+                if (needsChanged) {
+                  // Find what needs were added
+                  const newNeeds = (part.needs || []).filter(
+                    need => !previousPart.needs.includes(need)
+                  );
+                  
+                  if (newNeeds.length > 0) {
+                    partUpdates.push({
+                      type: 'part_updated',
+                      id: `${part.id}-updated-needs-${Date.now()}`,
+                      title: `Added needs to "${part.name}": ${newNeeds.join(', ')}`,
+                      timestamp: updatedTimestamp,
+                      associatedId: part.id,
+                      updateType: 'needs',
+                      sortKey: updatedTimestamp.getTime()
+                    });
+                  }
+                }
+                
+                // Look for role or description changes
+                if (descriptionChanged || roleChanged) {
+                  let changes = [];
+                  if (descriptionChanged) changes.push('description');
+                  if (roleChanged) changes.push('role');
+                  
+                  partUpdates.push({
+                    type: 'part_updated',
+                    id: `${part.id}-updated-details-${Date.now()}`,
+                    title: `Updated ${changes.join(' and ')} for "${part.name}"`,
+                    timestamp: updatedTimestamp,
+                    associatedId: part.id,
+                    updateType: 'details',
+                    sortKey: updatedTimestamp.getTime()
+                  });
+                }
+                
+                // If we detected content changes but couldn't identify specific attribute changes,
+                // add a generic update
+                if (hasContentChanged && !feelingsChanged && !beliefsChanged && 
+                    !triggersChanged && !needsChanged && !descriptionChanged && !roleChanged) {
+                  partUpdates.push({
+                    type: 'part_updated',
+                    id: `${part.id}-updated-general-${Date.now()}`,
+                    title: `Part "${part.name}" was updated`,
+                    timestamp: updatedTimestamp,
+                    associatedId: part.id,
+                    updateType: 'general',
+                    sortKey: updatedTimestamp.getTime()
+                  });
+                }
+              }
+            }
+            
+            // Add all part-related updates to the activity list
+            allActivity.push(...partUpdates);
           });
         }
         
         // Add relationships to activity
         if (system && system.relationships) {
+          if (DEBUG) {
+            console.log("Processing relationships for activity");
+          }
+          
           Object.values(system.relationships).forEach(rel => {
             const sourcePart = system.parts[rel.source_id]?.name || 'Unknown';
             const targetPart = system.parts[rel.target_id]?.name || 'Unknown';
+            
+            // Use created_at or a fallback
+            const rawTimestamp = rel.created_at;
+            const timestamp = getStableTimestamp(rel.id, rawTimestamp);
             
             allActivity.push({
               type: 'relationship',
               id: rel.id,
               title: `Relationship created: "${sourcePart}" → "${targetPart}"`,
-              timestamp: new Date(rel.created_at),
-              associatedId: rel.id
+              timestamp,
+              associatedId: rel.id,
+              sortKey: timestamp.getTime()
             });
           });
         }
         
+        if (DEBUG) {
+          console.log("All activity before sorting:", allActivity.length);
+        }
+        
+        // Ensure all items have valid dates and handle invalid dates
+        const validActivity = allActivity.filter(item => {
+          const isValid = item.timestamp instanceof Date && !isNaN(item.timestamp.getTime());
+          if (!isValid) {
+            console.warn("Invalid timestamp for activity item:", item);
+          }
+          return isValid;
+        });
+        
+        if (DEBUG) {
+          console.log("Valid activity items:", validActivity.length);
+        }
+        
         // Sort by timestamp (newest first) and take top 10
-        const sortedActivity = allActivity
-          .sort((a, b) => b.timestamp - a.timestamp)
+        // Use sortKey for stable sorting between renders
+        const sortedActivity = validActivity
+          .sort((a, b) => b.sortKey - a.sortKey)
           .slice(0, 10);
           
+        if (DEBUG) {
+          console.log("Sorted activity (top 10):", sortedActivity.map(act => ({
+            title: act.title,
+            type: act.type,
+            time: act.timestamp.toISOString()
+          })));
+          
+          // Final debugging - log the exact activities that will be shown
+          console.log("Activity items to be displayed:", sortedActivity.map(act => ({
+            id: act.id,
+            type: act.type,
+            title: act.title,
+            associatedId: act.associatedId,
+            time: act.timestamp.toISOString()
+          })));
+        }
+        
         if (isMounted) {
           setRecentActivity(sortedActivity);
+          if (DEBUG) {
+            console.log("Set recentActivity state with", sortedActivity.length, "items");
+          }
           
           // Generate personalized recommendations
           const newRecommendations = [];
@@ -218,8 +626,15 @@ const Dashboard = () => {
             title: 'Visualize Your System',
             description: 'See a visual representation of your internal family system.',
             action: 'View Map',
-            path: '/map'
+            path: '/system-map'
           });
+          
+          // Make sure we give each recommendation a unique ID
+          newRecommendations.forEach((rec, index) => {
+            rec.id = `rec-${index}-${rec.type}`;
+          });
+          
+          console.log("Generated recommendations:", newRecommendations.length);
           
           // Shuffle and select 3 recommendations
           const shuffled = newRecommendations.sort(() => 0.5 - Math.random());
@@ -229,6 +644,7 @@ const Dashboard = () => {
         console.error('Error in dashboard data loading:', err);
         if (isMounted) {
           setRecentActivity([]);
+          setRecommendations([]);
         }
       } finally {
         if (isMounted) {
@@ -237,25 +653,31 @@ const Dashboard = () => {
       }
     };
     
-    if (isAuthenticated && system) {
+    // Fix: Only check for system existence since it only exists for authenticated users
+    if (system) {
+      console.log("Starting to fetch dashboard data - system detected");
       fetchData();
+    } else {
+      console.log("Not fetching dashboard data - system not available", { system });
     }
     
     return () => {
       isMounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, system, journals.length, loadingActivity]);
+  }, [system, journals, lastUpdateCheck]);
 
   const handleActivityClick = (type, id) => {
     if (type === 'journal') {
+      // Enhanced navigation for journal entries - takes user directly to the specific journal
       navigate('/journal', { 
         state: { 
           highlightId: id,
-          selectedPrompt: currentPrompt 
+          selectedPrompt: currentPrompt,
+          scrollToEntry: id // Add this to tell the journal page to scroll to this entry
         } 
       });
-    } else if (type === 'part_created' || type === 'part_updated') {
+    } else if (type === 'part' || type === 'part_created' || type === 'part_updated') {
       navigate(`/parts/${id}`, { state: { from: 'dashboard' } });
     } else if (type === 'relationship') {
       navigate('/system-map');
@@ -266,6 +688,7 @@ const Dashboard = () => {
     switch (type) {
       case 'journal':
         return <EditNoteIcon color="primary" />;
+      case 'part':
       case 'part_created':
         return <PersonAddIcon color="secondary" />;
       case 'part_updated':
@@ -376,16 +799,31 @@ const Dashboard = () => {
           {/* Recent Activity */}
           <Grid item xs={12} md={4}>
             <Paper sx={{ p: 2, height: '100%' }}>
-              <Typography variant="h6" gutterBottom>Recent Activity</Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6" gutterBottom sx={{ mb: 0 }}>Recent Activity</Typography>
+                <Tooltip title="Refresh activity feed">
+                  <IconButton 
+                    size="small" 
+                    onClick={() => setLastUpdateCheck(Date.now())}
+                    disabled={loadingActivity}
+                  >
+                    <RefreshIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
               
               {loadingActivity ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
                   <CircularProgress size={24} />
                 </Box>
-              ) : recentActivity.length > 0 ? (
+              ) : recentActivity && recentActivity.length > 0 ? (
                 <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
+                  {/* Debug - Log recentActivity state before rendering */}
+                  {console.log("Rendering recentActivity list with", recentActivity.length, "items:", 
+                    recentActivity.map(a => `${a.title} (${a.type})`))}
+                  
                   {recentActivity.map((activity, index) => (
-                    <React.Fragment key={activity.id}>
+                    <React.Fragment key={activity.id || `activity-${index}`}>
                       {index > 0 && <Divider variant="inset" component="li" />}
                       <ListItem 
                         alignItems="flex-start"
@@ -405,13 +843,17 @@ const Dashboard = () => {
                                 variant="body2"
                                 color="text.primary"
                               >
-                                {formatDistanceToNow(activity.timestamp, { addSuffix: true })}
+                                {formatDistanceToNow(activity.timestamp, { 
+                                  addSuffix: true,
+                                  includeSeconds: true 
+                                })}
                               </Typography>
                               <Typography
                                 component="span"
                                 variant="caption"
                                 color="text.secondary"
                               >
+                                {/* Use date-fns format for consistent date display */}
                                 {format(activity.timestamp, 'PPP p')}
                               </Typography>
                             </>
@@ -450,10 +892,10 @@ const Dashboard = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
                   <CircularProgress size={24} />
                 </Box>
-              ) : recommendations.length > 0 ? (
+              ) : recommendations && recommendations.length > 0 ? (
                 <Box>
                   {recommendations.map(recommendation => (
-                    <Card key={recommendation.id} sx={{ mb: 2 }}>
+                    <Card key={recommendation.id || `rec-${recommendation.type}`} sx={{ mb: 2 }}>
                       <CardContent sx={{ pb: 0 }}>
                         <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1 }}>
                           <Box sx={{ mr: 1, pt: 0.5 }}>
@@ -482,9 +924,19 @@ const Dashboard = () => {
                   ))}
                 </Box>
               ) : (
-                <Typography color="text.secondary" align="center">
-                  No recommendations at this time.
-                </Typography>
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography color="text.secondary">
+                    No recommendations at this time. Try adding more parts to your system.
+                  </Typography>
+                  <Button 
+                    variant="outlined" 
+                    size="small" 
+                    sx={{ mt: 2 }}
+                    onClick={() => navigate('/parts/new')}
+                  >
+                    Add a Part
+                  </Button>
+                </Box>
               )}
             </Paper>
           </Grid>

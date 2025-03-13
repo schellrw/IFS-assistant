@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, createRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
 import { 
@@ -33,6 +33,43 @@ const JournalPage = () => {
   const [initialPrompt, setInitialPrompt] = useState('');
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
   
+  // Create refs for journal entries for scrolling functionality
+  const journalRefs = useRef({});
+
+  // Create a ref for each journal entry when journals change
+  useEffect(() => {
+    if (journals && journals.length > 0) {
+      // Create a ref for each journal entry
+      journalRefs.current = journals.reduce((acc, journal) => {
+        acc[journal.id] = createRef();
+        return acc;
+      }, {});
+    }
+  }, [journals]);
+  
+  // Scroll to specific journal entry if directed from recent activity
+  useEffect(() => {
+    if (location.state?.scrollToEntry && journalRefs.current[location.state.scrollToEntry]) {
+      // Slightly delay scrolling to ensure the DOM is ready
+      setTimeout(() => {
+        if (journalRefs.current[location.state.scrollToEntry]?.current) {
+          journalRefs.current[location.state.scrollToEntry].current.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'start'
+          });
+          
+          // Expand the accordion for this journal entry
+          if (journalRefs.current[location.state.scrollToEntry].current) {
+            const accordionButton = journalRefs.current[location.state.scrollToEntry].current.querySelector('.MuiAccordionSummary-root');
+            if (accordionButton && !accordionButton.classList.contains('Mui-expanded')) {
+              accordionButton.click();
+            }
+          }
+        }
+      }, 500);
+    }
+  }, [location.state, journals]);
+
   // Initialize the initial prompt only once on component mount
   useEffect(() => {
     let prompt;
@@ -244,8 +281,17 @@ const JournalPage = () => {
           {journals && journals.length > 0 ? (
             <List>
               {journals.map((journal) => (
-                <Paper sx={{ mb: 2 }} key={journal.id}>
-                  <Accordion>
+                <Paper 
+                  sx={{ mb: 2 }} 
+                  key={journal.id} 
+                  ref={journalRefs.current[journal.id]}
+                  // Highlight the entry if it matches the scrollToEntry parameter
+                  style={location.state?.scrollToEntry === journal.id ? { 
+                    boxShadow: '0 0 8px 2px rgba(25, 118, 210, 0.5)',
+                    border: '1px solid #1976d2'
+                  } : {}}
+                >
+                  <Accordion defaultExpanded={location.state?.scrollToEntry === journal.id}>
                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
                         <Typography variant="subtitle1" fontWeight="bold">
