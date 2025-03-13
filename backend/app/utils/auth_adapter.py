@@ -45,6 +45,10 @@ def auth_required(f):
     """
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Allow OPTIONS requests to pass through without authentication
+        if request.method == 'OPTIONS':
+            return f(*args, **kwargs)
+            
         if use_supabase_auth:
             # Supabase Auth strategy
             try:

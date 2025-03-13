@@ -242,11 +242,15 @@ def add_message(conversation_id):
                 
                 # Generate AI response - use a generic method name if specific one doesn't exist
                 try:
-                    ai_response_content = llm_service.generate_response(part, messages, content)
+                    ai_response_content = llm_service.chat_with_part(part, messages, content)
                 except AttributeError:
                     # Fallback to a more generic method if available
-                    logger.warning("generate_part_response not found, trying generate_response")
-                    ai_response_content = "I'm sorry, I'm not able to respond right now."
+                    logger.warning("chat_with_part not found, trying generate_response")
+                    
+                    # Create a simple prompt if we need to fall back
+                    part_name = part.get('name', 'Part')
+                    fallback_prompt = f"You are {part_name}. User says: {content}"
+                    ai_response_content = llm_service.generate_response(fallback_prompt)
                 
                 # Create AI message
                 ai_message_data = {
@@ -279,6 +283,16 @@ def add_message(conversation_id):
             "message": user_message,
             "ai_response": ai_message
         }
+        
+        # Ensure both message objects include timestamps in a consistent format
+        for msg_obj in [user_message, ai_message]:
+            if msg_obj and 'timestamp' in msg_obj:
+                # Ensure timestamp is in ISO format
+                try:
+                    if isinstance(msg_obj['timestamp'], datetime.datetime):
+                        msg_obj['timestamp'] = msg_obj['timestamp'].isoformat()
+                except Exception as e:
+                    logger.warning(f"Error formatting timestamp: {e}")
         
         return jsonify(response), 201
     except ValidationError as e:

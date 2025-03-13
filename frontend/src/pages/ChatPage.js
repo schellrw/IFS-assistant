@@ -105,15 +105,46 @@ const ChatPage = () => {
       // Send the message to the API
       const response = await axios.post(
         `${API_BASE_URL}/api/conversations/${conversation.id}/messages`,
-        { message: userMessage }
+        { content: userMessage }
       );
       
+      // For debugging
+      console.log('User message from server:', response.data.message);
+      console.log('AI response from server:', response.data.ai_response);
+      
       // Replace the temp message with the actual one and add the part's response
-      setMessages(prev => [
-        ...prev.filter(m => m.id !== tempUserMessage.id),
-        response.data.user_message,
-        response.data.part_response
-      ]);
+      setMessages(prev => {
+        // Prepare the messages - ensure both user and AI messages have valid timestamps
+        const userMsg = response.data.message;
+        const aiMsg = response.data.ai_response;
+        
+        // Only process messages that exist
+        const processedMessages = [];
+        
+        // Add user message if it exists
+        if (userMsg) {
+          // Ensure the user message has a timestamp
+          if (!userMsg.timestamp) {
+            userMsg.timestamp = new Date().toISOString();
+          }
+          processedMessages.push(userMsg);
+        }
+        
+        // Add AI message if it exists
+        if (aiMsg) {
+          // Ensure the AI message has a timestamp
+          if (!aiMsg.timestamp) {
+            aiMsg.timestamp = new Date().toISOString();
+          }
+          processedMessages.push(aiMsg);
+        }
+        
+        // Return the messages array without the temporary message
+        return [
+          ...prev.filter(m => m.id !== tempUserMessage.id),
+          ...processedMessages
+        ];
+      });
       
     } catch (err) {
       console.error('Error sending message:', err);
@@ -141,6 +172,26 @@ const ChatPage = () => {
           .join('')
           .toUpperCase()
       : '?';
+  };
+
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return '';
+    
+    try {
+      const date = new Date(timestamp);
+      // Check if the date is valid
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      
+      return date.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    } catch (e) {
+      // If there's any error parsing the date, return an empty string
+      return '';
+    }
   };
 
   if (!part) {
@@ -268,10 +319,7 @@ const ChatPage = () => {
                         color: msg.role === 'user' ? 'rgba(255,255,255,0.7)' : 'text.secondary',
                       }}
                     >
-                      {new Date(msg.timestamp).toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
+                      {formatTimestamp(msg.timestamp)}
                     </Typography>
                   </Paper>
                   {msg.role === 'user' && (

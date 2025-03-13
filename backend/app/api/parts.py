@@ -174,4 +174,69 @@ def delete_part(part_id):
         return jsonify({"message": "Part deleted successfully"})
     except Exception as e:
         logger.error(f"Error deleting part: {str(e)}")
-        return jsonify({"error": "An error occurred while deleting the part"}), 500 
+        return jsonify({"error": "An error occurred while deleting the part"}), 500
+
+@parts_bp.route('/parts/<part_id>/conversations', methods=['GET', 'OPTIONS'])
+@auth_required
+def get_part_conversations(part_id):
+    """Get conversations for a specific part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with conversations data.
+    """
+    try:
+        # Verify the part exists
+        part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
+            
+        # Get conversations for this part
+        from ..models import PartConversation
+        filter_dict = {'part_id': part_id}
+        conversations = current_app.db_adapter.get_all('part_conversations', PartConversation, filter_dict)
+        
+        return jsonify({"conversations": conversations})
+    except Exception as e:
+        logger.error(f"Error fetching part conversations: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching part conversations"}), 500
+
+@parts_bp.route('/parts/<part_id>/conversations', methods=['POST'])
+@auth_required
+def create_part_conversation(part_id):
+    """Create a new conversation for a specific part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with created conversation data.
+    """
+    try:
+        # Verify the part exists
+        part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
+            
+        data = request.json
+        title = data.get('title', f"Conversation with {part.get('name', 'Part')}")
+        
+        # Create conversation
+        from ..models import PartConversation
+        conversation_data = {
+            'title': title,
+            'part_id': part_id,
+            'system_id': part.get('system_id')
+        }
+        
+        conversation = current_app.db_adapter.create('part_conversations', PartConversation, conversation_data)
+        
+        if not conversation:
+            return jsonify({"error": "Failed to create conversation"}), 500
+        
+        return jsonify({"conversation": conversation}), 201
+    except Exception as e:
+        logger.error(f"Error creating part conversation: {str(e)}")
+        return jsonify({"error": "An error occurred while creating the conversation"}), 500 
