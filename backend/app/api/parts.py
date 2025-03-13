@@ -150,6 +150,7 @@ def update_part(part_id):
     """
     try:
         data = request.json
+        logger.info(f"Updating part {part_id} with data: {data}")
         
         # For update operations, system_id should be optional
         # First, get the existing part to ensure it exists
@@ -158,20 +159,34 @@ def update_part(part_id):
             return jsonify({"error": "Part not found"}), 404
         
         # Validate input with update schema (doesn't require system_id)
-        PartUpdateSchema().load(data)
+        try:
+            PartUpdateSchema().load(data)
+        except ValidationError as e:
+            logger.error(f"Validation error updating part: {e.messages}")
+            return jsonify({"error": "Validation failed", "details": e.messages}), 400
         
         # Remove system_id if present (shouldn't be updated)
         data.pop('system_id', None)
         
+        # Explicitly set updated_at to current time to ensure it's updated
+        from datetime import datetime
+        data['updated_at'] = datetime.utcnow().isoformat()
+        logger.info(f"Setting updated_at to {data['updated_at']} for part update")
+        
         # Use the database adapter to update
         part = current_app.db_adapter.update(TABLE_NAME, Part, part_id, data)
-        
+        if not part:
+            logger.error(f"Update failed for part {part_id}")
+            return jsonify({"error": "Failed to update part"}), 500
+            
+        logger.info(f"Part updated successfully: {part.get('id', 'unknown')} with timestamp {part.get('updated_at')}")
         return jsonify(part)
     except ValidationError as e:
+        logger.error(f"Unexpected validation error: {e.messages}")
         return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except Exception as e:
         logger.error(f"Error updating part: {str(e)}")
-        return jsonify({"error": "An error occurred while updating the part"}), 500
+        return jsonify({"error": f"An error occurred while updating the part: {str(e)}"}), 500
 
 @parts_bp.route('/parts/<part_id>', methods=['DELETE'])
 @auth_required

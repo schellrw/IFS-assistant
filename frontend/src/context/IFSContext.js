@@ -70,6 +70,17 @@ export const IFSProvider = ({ children }) => {
       
       setSystem(response.data);
       setError(null);
+      
+      // After successfully fetching the system, also fetch journals
+      if (response.data && response.data.id) {
+        console.log('Automatically fetching journals after system load');
+        try {
+          await fetchJournals(response.data.id);
+        } catch (journalErr) {
+          console.error('Error auto-fetching journals:', journalErr);
+          // Don't set an error for journal fetch failures
+        }
+      }
     } catch (err) {
       console.error('Error fetching system:', err);
       
@@ -189,6 +200,58 @@ export const IFSProvider = ({ children }) => {
     }
   };
 
+  const fetchJournals = async (systemId) => {
+    try {
+      // Make sure we have a token
+      if (!localToken) {
+        console.error('Cannot fetch journals: No authentication token available');
+        return [];
+      }
+      
+      console.log('Fetching journals with token:', localToken ? `${localToken.substring(0, 10)}...` : 'none');
+      console.log('Using system ID for journals:', systemId);
+      
+      const response = await axios.get(`${API_BASE_URL}/api/journals`, {
+        headers: {
+          'Authorization': `Bearer ${localToken}`,
+          'Content-Type': 'application/json'
+        },
+        params: {
+          system_id: systemId
+        }
+      });
+      
+      // Sort journals by date (newest first)
+      const sortedJournals = response.data.sort((a, b) => 
+        new Date(b.date) - new Date(a.date)
+      );
+      
+      // Update state
+      setJournals(sortedJournals);
+      
+      return sortedJournals;
+    } catch (err) {
+      console.error('Error fetching journals:', err);
+      
+      // Handle specific errors
+      if (err.response) {
+        if (err.response.status === 401 || err.response.status === 422) {
+          console.error('Authentication error - token may be invalid');
+          setJournals([]);
+          return [];
+        } else if (err.response.status === 404) {
+          console.error('Journals not found - may not exist for this system');
+          setJournals([]);
+          return [];
+        }
+      }
+      
+      // For other errors, still return empty array to prevent cascading errors
+      setJournals([]);
+      return [];
+    }
+  };
+
   const getJournals = async () => {
     try {
       // Make sure we have a token
@@ -203,54 +266,8 @@ export const IFSProvider = ({ children }) => {
         return []; // Return empty array if no system
       }
       
-      console.log('Fetching journals with token:', localToken ? `${localToken.substring(0, 10)}...` : 'none');
-      console.log('Using system ID for journals:', system.id);
-      
-      try {
-        const response = await axios.get(`${API_BASE_URL}/api/journals`, {
-          headers: {
-            'Authorization': `Bearer ${localToken}`,
-            'Content-Type': 'application/json'
-          },
-          params: {
-            system_id: system.id
-          }
-        });
-        
-        // Sort journals by date (newest first)
-        const sortedJournals = response.data.sort((a, b) => 
-          new Date(b.date) - new Date(a.date)
-        );
-        
-        // Only update state if journals have actually changed
-        // This prevents unnecessary re-renders
-        const journalsChanged = JSON.stringify(sortedJournals) !== JSON.stringify(journals);
-        if (journalsChanged) {
-          setJournals(sortedJournals);
-        }
-        
-        return sortedJournals;
-      } catch (err) {
-        console.error('Error fetching journals:', err);
-        
-        // Handle specific errors
-        if (err.response) {
-          if (err.response.status === 401 || err.response.status === 422) {
-            console.error('Authentication error - token may be invalid');
-            // Don't throw, just return empty array
-            setJournals([]);
-            return [];
-          } else if (err.response.status === 404) {
-            console.error('Journals not found - may not exist for this system');
-            setJournals([]);
-            return [];
-          }
-        }
-        
-        // For other errors, still return empty array to prevent cascading errors
-        setJournals([]);
-        return [];
-      }
+      // Use the fetchJournals function
+      return await fetchJournals(system.id);
     } catch (err) {
       console.error('Unexpected error in getJournals:', err);
       setJournals([]);
@@ -370,6 +387,7 @@ export const IFSProvider = ({ children }) => {
     updatePartOrder,
     addJournal,
     getJournals,
+    fetchJournals,
     addRelationship,
     updateRelationship,
     deleteRelationship,
