@@ -280,7 +280,10 @@ const PartDetailsPage = () => {
                 </Button>
               </Box>
               
-              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+              <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, textAlign: 'center' }}>
+                  Generate a personality profile to enhance search and conversation abilities
+                </Typography>
                 <GenerateVectorsButton 
                   partId={partId} 
                   variant="text" 

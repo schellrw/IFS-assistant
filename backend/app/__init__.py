@@ -89,6 +89,12 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]
     }})
     
+    # Add global OPTIONS handler for preflight requests
+    @app.route('/api/<path:path>', methods=['OPTIONS'])
+    def handle_options(path):
+        """Global OPTIONS handler to ensure CORS preflight requests work for all routes."""
+        return '', 204
+    
     # Add test endpoints for connectivity testing
     @app.route('/api/test', methods=['GET', 'OPTIONS'])
     def test():

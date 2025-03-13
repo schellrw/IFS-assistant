@@ -69,6 +69,7 @@ class LLMService:
             return "Error: requests library not available for API calls"
             
         try:
+            # The Hugging Face API expects the inputs to be a string, not an object
             payload = {
                 "inputs": prompt,
                 "parameters": {
@@ -79,6 +80,8 @@ class LLMService:
                     "return_full_text": False
                 }
             }
+            
+            logger.debug(f"Sending request to {self.api_url} with payload: {json.dumps(payload)}")
             
             response = requests.post(
                 self.api_url,
@@ -121,9 +124,11 @@ class LLMService:
         Returns:
             Formatted prompt string.
         """
+        part_name = part.get('name', 'a part')
+        
         # Base system message describing the part
         part_description = [
-            f"You are roleplaying as {part.get('name', 'a part')}, which is an internal part of a person according to Internal Family Systems therapy.",
+            f"You are roleplaying as {part_name}, which is an internal part of a person according to Internal Family Systems therapy.",
             f"Role: {part.get('role', 'Unknown')}",
             f"Description: {part.get('description', '')}",
         ]
@@ -138,17 +143,24 @@ class LLMService:
         if part.get('needs'):
             part_description.append(f"Needs: {', '.join(part.get('needs', []))}")
         
-        # Add guidelines
+        # Add guidelines with stronger emphasis
         part_description.extend([
             "",
-            "Guidelines:",
-            "1. Respond as if you are this part, using first-person perspective.",
-            "2. Stay true to the part's feelings, beliefs, and characteristics.",
-            "3. Express the part's needs and concerns authentically.",
-            "4. Avoid being judgmental or harmful.",
-            "5. Keep responses concise and focused.",
-            "6. IMPORTANT: Provide ONLY ONE response as the part. Do not simulate multiple turns of conversation.",
-            "7. Do NOT include 'User:' or any other prefixes in your response.",
+            "VERY IMPORTANT INSTRUCTIONS:",
+            f"1. Respond in first-person as {part_name} WITHOUT using your name as a prefix.",
+            "2. DO NOT start your response with your name or 'Part:' - just speak directly.",
+            "3. DO NOT include any 'User:' text in your response.",
+            "4. DO NOT simulate a conversation or include multiple turns of dialogue.",
+            "5. Provide ONLY a SINGLE response from your perspective.",
+            "6. Stay true to your defined feelings, beliefs, and characteristics.",
+            "7. Express your needs and concerns authentically.",
+            "8. Keep responses personal, direct, and focused.",
+            "",
+            "EXAMPLE FORMAT:",
+            "BAD: 'UserName: What you said' (DO NOT include what the user said)",
+            f"BAD: '{part_name}: My thoughts on this...' (DO NOT include your name)",
+            "BAD: Multiple turns of conversation (DO NOT do this)",
+            "GOOD: 'I feel strongly about this because...' (Direct first-person without name prefix)",
             "",
             "Safety guidelines:",
             "1. If the conversation becomes harmful or inappropriate, gently redirect.",
@@ -164,13 +176,13 @@ class LLMService:
         conversation_text = []
         if conversation_history:
             for msg in conversation_history:
-                role = "User" if msg.get("role") == "user" else part.get("name", "Part")
+                role = "User" if msg.get("role") == "user" else part_name
                 conversation_text.append(f"{role}: {msg.get('content', '')}")
         
         # Add current user message
         if user_message:
             conversation_text.append(f"User: {user_message}")
-            conversation_text.append(f"Generate a single response from {part.get('name', 'Part')} (without including the name prefix):")
+            conversation_text.append(f"Your response (without '{part_name}:' prefix):")
         
         # Combine everything into the final prompt
         full_prompt = system_message + "\n\n" + "\n".join(conversation_text)
@@ -200,44 +212,77 @@ class LLMService:
         # Generate the response
         raw_response = self.generate_response(prompt)
         
-        # Process the response to get only the part's message
-        # The LLM might generate a conversation with multiple turns
+        # Clean up the response - this is more robust now
         part_name = part.get('name', 'Part')
+        clean_response = self._clean_response(raw_response, part_name)
         
-        # First, check if we have a clean response without any prefixes
-        if not raw_response.startswith(f"{part_name}:") and not raw_response.startswith("User:"):
-            # If it doesn't start with a role prefix, return as is
-            return raw_response.strip()
+        # If we have a clean response, return it
+        if clean_response:
+            return clean_response
+            
+        # Fallback to the raw response if cleaning failed
+        return raw_response.strip()
+    
+    def _clean_response(self, response: str, part_name: str) -> str:
+        """Clean up the response to remove any unwanted prefixes or formatting.
         
-        # If the response contains multiple turns, extract just the first part response
-        lines = raw_response.split('\n')
-        part_response_lines = []
-        capture_mode = False
+        Args:
+            response: The raw response from the LLM
+            part_name: The name of the part
+            
+        Returns:
+            Cleaned response
+        """
+        if not response:
+            return ""
+            
+        # Remove any error messages
+        if response.startswith("Error:"):
+            return response
+            
+        # Split into lines for processing
+        lines = response.split('\n')
+        cleaned_lines = []
+        skip_line = False
         
         for line in lines:
             line = line.strip()
-            # Start capturing when we see the part's name
-            if line.startswith(f"{part_name}:"):
-                # Remove the prefix 
-                line = line[len(f"{part_name}:"):].strip()
-                capture_mode = True
-                if line:  # If there's content on the same line
-                    part_response_lines.append(line)
-            # Stop capturing if we see a new "User:" message
-            elif line.startswith("User:"):
-                break
-            # Append lines while in capture mode
-            elif capture_mode and line:
-                part_response_lines.append(line)
+            
+            # Skip empty lines
+            if not line:
+                continue
+                
+            # Skip lines that appear to be User: prefixes
+            if line.lower().startswith("user:"):
+                skip_line = True
+                continue
+            
+            # Clean part name prefixes (case insensitive)
+            prefix_pattern = f"{part_name}:"
+            if line.lower().startswith(prefix_pattern.lower()):
+                line = line[len(prefix_pattern):].strip()
+            
+            # Skip any other role prefixes that might appear
+            if ":" in line and len(line.split(":")[0]) < 20:  # Simple heuristic for detecting role prefixes
+                potential_prefix = line.split(":")[0].strip()
+                if potential_prefix.lower() != "i" and not potential_prefix.isdigit():  # Avoid cleaning "I:" or timestamps
+                    # This looks like a role prefix, remove it
+                    line = ":".join(line.split(":")[1:]).strip()
+            
+            # Only add non-empty lines
+            if line and not skip_line:
+                cleaned_lines.append(line)
+            
+            # Reset skip_line flag
+            skip_line = False
         
-        # Join all captured lines
-        processed_response = " ".join(part_response_lines)
+        # Join cleaned lines
+        cleaned_response = " ".join(cleaned_lines)
         
-        # If we couldn't extract a proper response, return the raw text
-        if not processed_response:
-            return raw_response.strip()
+        # Final quick clean up of common issues
+        cleaned_response = cleaned_response.replace("*", "")  # Remove any asterisks
         
-        return processed_response
+        return cleaned_response
 
 
 # Create a singleton instance
