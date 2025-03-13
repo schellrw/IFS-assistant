@@ -103,6 +103,9 @@ export const FeelingsInput = ({ value = [], onChange, label }) => {
 };
 
 export const ListInput = ({ value = [], onChange, label, placeholder }) => {
+  // Add a ref to track input elements
+  const inputRefs = React.useRef({});
+  
   const handleChange = (index, newValue) => {
     const newList = [...value];
     if (newValue.trim()) {
@@ -116,13 +119,33 @@ export const ListInput = ({ value = [], onChange, label, placeholder }) => {
   const handleKeyDown = (e, index) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      
+      // Get the current value at this index
+      const currentValue = value[index] || '';
+      
+      // Only add a new item if the current item has content
+      if (currentValue.trim() === '' && index === value.length - 1) {
+        // Don't add a new item if the last item is empty
+        return;
+      }
+      
       const newList = [...value];
+      const newIndex = index + 1;
+      
       if (index === value.length - 1) {
         newList.push('');
       } else {
-        newList.splice(index + 1, 0, '');
+        newList.splice(newIndex, 0, '');
       }
+      
       onChange(newList);
+      
+      // Focus the new item after the state has been updated
+      setTimeout(() => {
+        if (inputRefs.current[newIndex]) {
+          inputRefs.current[newIndex].focus();
+        }
+      }, 0);
     }
   };
 
@@ -147,6 +170,7 @@ export const ListInput = ({ value = [], onChange, label, placeholder }) => {
               InputProps={{
                 disableUnderline: true
               }}
+              inputRef={el => inputRefs.current[index] = el}
             />
             {item && (
               <IconButton 

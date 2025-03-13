@@ -4,7 +4,7 @@ Supports both SQLAlchemy and Supabase backends.
 """
 import logging
 from flask import Blueprint, request, jsonify, current_app, g
-from marshmallow import Schema, fields, ValidationError
+from marshmallow import Schema, fields, ValidationError, EXCLUDE
 
 from ..models import db, Part
 from ..utils.auth_adapter import auth_required
@@ -27,6 +27,23 @@ class PartSchema(Schema):
     beliefs = fields.List(fields.String(), required=False, allow_none=True)
     triggers = fields.List(fields.String(), required=False, allow_none=True)
     needs = fields.List(fields.String(), required=False, allow_none=True)
+
+class PartUpdateSchema(Schema):
+    """Part schema validation for updates (system_id not required)."""
+    name = fields.String(required=True)
+    role = fields.String(required=False, allow_none=True)
+    description = fields.String(required=False, allow_none=True)
+    image_url = fields.String(required=False, allow_none=True)
+    system_id = fields.String(required=False, allow_none=True)
+    feelings = fields.List(fields.String(), required=False, allow_none=True)
+    beliefs = fields.List(fields.String(), required=False, allow_none=True)
+    triggers = fields.List(fields.String(), required=False, allow_none=True)
+    needs = fields.List(fields.String(), required=False, allow_none=True)
+    
+    class Meta:
+        """Meta options for schema."""
+        # This makes the schema ignore unknown fields instead of raising errors
+        unknown = EXCLUDE
 
 @parts_bp.route('/parts', methods=['GET'])
 @auth_required
@@ -134,18 +151,21 @@ def update_part(part_id):
     try:
         data = request.json
         
-        # Validate input
-        PartSchema().load(data)
+        # For update operations, system_id should be optional
+        # First, get the existing part to ensure it exists
+        existing_part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
+        if not existing_part:
+            return jsonify({"error": "Part not found"}), 404
+        
+        # Validate input with update schema (doesn't require system_id)
+        PartUpdateSchema().load(data)
         
         # Remove system_id if present (shouldn't be updated)
         data.pop('system_id', None)
         
-        # Use the database adapter
+        # Use the database adapter to update
         part = current_app.db_adapter.update(TABLE_NAME, Part, part_id, data)
         
-        if not part:
-            return jsonify({"error": "Part not found"}), 404
-            
         return jsonify(part)
     except ValidationError as e:
         return jsonify({"error": "Validation failed", "details": e.messages}), 400

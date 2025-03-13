@@ -89,7 +89,42 @@ const PartDetailsPage = () => {
 
   const handleSave = async () => {
     try {
-      await updatePart(partId, formData);
+      // Debug current part and formData
+      console.log('Current part:', part);
+      console.log('Original formData:', formData);
+      
+      // Create a clean version of the form data with only valid fields
+      const cleanData = {
+        // Include only the fields that are valid for a part update
+        name: formData.name || part.name,
+        role: formData.role,
+        description: formData.description,
+        feelings: Array.isArray(formData.feelings) 
+          ? formData.feelings.filter(item => item && item.trim() !== '') 
+          : [],
+        beliefs: Array.isArray(formData.beliefs) 
+          ? formData.beliefs.filter(item => item && item.trim() !== '') 
+          : [],
+        triggers: Array.isArray(formData.triggers) 
+          ? formData.triggers.filter(item => item && item.trim() !== '') 
+          : [],
+        needs: Array.isArray(formData.needs) 
+          ? formData.needs.filter(item => item && item.trim() !== '') 
+          : []
+      };
+      
+      // Add system_id for validation if available
+      if (system?.id) {
+        cleanData.system_id = system.id;
+        console.log(`Setting system_id from system: ${system.id}`);
+      } else if (part.system_id) {
+        cleanData.system_id = part.system_id;
+        console.log(`Setting system_id from part: ${part.system_id}`);
+      }
+      
+      console.log('Final data to send:', cleanData);
+      
+      await updatePart(partId, cleanData);
       setIsEditing(false);
       setError('');
     } catch (err) {

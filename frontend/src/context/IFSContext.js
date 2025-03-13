@@ -169,6 +169,7 @@ export const IFSProvider = ({ children }) => {
 
   const updatePart = async (partId, updates) => {
     try {
+      console.log('Sending update with data:', JSON.stringify(updates, null, 2));
       const response = await axios.put(`${API_BASE_URL}/api/parts/${partId}`, updates, {
         headers: {
           'Authorization': `Bearer ${localToken}`
@@ -178,6 +179,12 @@ export const IFSProvider = ({ children }) => {
       return response.data;
     } catch (err) {
       console.error('Error updating part:', err);
+      if (err.response && err.response.data) {
+        console.error('Error details:', JSON.stringify(err.response.data, null, 2));
+        if (err.response.data.details) {
+          console.error('Validation errors:', JSON.stringify(err.response.data.details, null, 2));
+        }
+      }
       throw err;
     }
   };
