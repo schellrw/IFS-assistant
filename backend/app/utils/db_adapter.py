@@ -261,6 +261,43 @@ class DBAdapter:
         except Exception as e:
             logger.error(f"Error performing vector similarity search: {e}")
             return []
+    
+    def count(self, table: str, model_class, filter_dict: Optional[Dict[str, Any]] = None) -> int:
+        """Count records, optionally filtered.
+        
+        Args:
+            table: Table name (for Supabase)
+            model_class: SQLAlchemy model class (for SQLAlchemy)
+            filter_dict: Optional dictionary of filter conditions
+            
+        Returns:
+            Count of matching records
+        """
+        try:
+            if self.using_supabase:
+                query = supabase.client.table(table).select('id', count='exact')
+                
+                # Apply filters
+                if filter_dict:
+                    for key, value in filter_dict.items():
+                        query = query.eq(key, value)
+                
+                response = query.execute()
+                return response.count if hasattr(response, 'count') else len(response.data)
+            else:
+                from sqlalchemy import func
+                
+                query = self.db.session.query(func.count(model_class.id))
+                
+                # Apply filters
+                if filter_dict:
+                    for key, value in filter_dict.items():
+                        query = query.filter(getattr(model_class, key) == value)
+                
+                return query.scalar() or 0
+        except Exception as e:
+            logger.error(f"Error counting records in {table}: {e}")
+            return 0
 
 # Initialize adapter in the application context
 def init_db_adapter(app, db) -> DBAdapter:

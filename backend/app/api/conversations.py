@@ -259,42 +259,41 @@ def add_message(conversation_id):
                     'content': ai_response_content
                 }
                 
-                # Generate embedding for AI response if available
+                # Generate embedding if available
                 if EMBEDDINGS_AVAILABLE:
                     try:
-                        ai_embedding = embedding_manager.generate_embedding(ai_response_content)
-                        if ai_embedding:
-                            ai_message_data['embedding'] = ai_embedding
+                        embedding = embedding_manager.generate_embedding(ai_response_content)
+                        if embedding:
+                            ai_message_data['embedding'] = embedding
                     except Exception as e:
                         logger.error(f"Error generating embedding for AI response: {str(e)}")
                 
-                # Create AI message
+                # Create and store AI message
                 ai_message = current_app.db_adapter.create(CONVERSATION_MESSAGE_TABLE, ConversationMessage, ai_message_data)
                 
+                # Check if we should generate a summary for this conversation
+                # We'll only generate summaries automatically for conversations that don't have one yet
+                if not conversation.get('summary'):
+                    try:
+                        # Automatic summary generation now happens when the user navigates away
+                        # We'll just log that this message was added without a summary
+                        logger.info(f"Message added to conversation {conversation_id} without summary - will be generated on navigation")
+                    except Exception as e:
+                        logger.error(f"Error in automatic summary check: {str(e)}")
+                        # Continue without failing if summary generation fails
             except Exception as e:
                 logger.error(f"Error generating AI response: {str(e)}")
-                # Return partial success (user message was created)
                 return jsonify({
                     "message": user_message,
-                    "error": f"Error generating AI response: {str(e)}"
+                    "error": f"Failed to generate AI response: {str(e)}"
                 }), 207
         
-        response = {
-            "message": user_message,
-            "ai_response": ai_message
-        }
-        
-        # Ensure both message objects include timestamps in a consistent format
-        for msg_obj in [user_message, ai_message]:
-            if msg_obj and 'timestamp' in msg_obj:
-                # Ensure timestamp is in ISO format
-                try:
-                    if isinstance(msg_obj['timestamp'], datetime.datetime):
-                        msg_obj['timestamp'] = msg_obj['timestamp'].isoformat()
-                except Exception as e:
-                    logger.warning(f"Error formatting timestamp: {e}")
-        
-        return jsonify(response), 201
+        # Return both messages
+        result = {"message": user_message}
+        if ai_message:
+            result["ai_response"] = ai_message
+            
+        return jsonify(result)
     except ValidationError as e:
         return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except Exception as e:
@@ -327,85 +326,85 @@ def delete_conversation(conversation_id):
 @conversations_bp.route('/conversations/search', methods=['GET'])
 @auth_required
 def search_conversations():
-    """Search conversations by semantic query.
+    """Search conversations by text or semantic similarity.
     
     Query params:
-        q: Search query
-        system_id: System ID (required)
+        query: Search query text (required)
+        part_id: Part ID (required)
+        search_type: Type of search - 'text' or 'semantic' (required)
         limit: Maximum number of results (optional, default 10)
         
     Returns:
         JSON response with search results.
     """
-    if not EMBEDDINGS_AVAILABLE:
-        return jsonify({"error": "Embedding service not available"}), 503
-    
     try:
         # Get query parameters
-        query = request.args.get('q')
-        system_id = request.args.get('system_id')
+        query = request.args.get('query')
+        part_id = request.args.get('part_id')
+        search_type = request.args.get('search_type', 'text')
         limit = int(request.args.get('limit', 10))
         
         if not query:
             return jsonify({"error": "Search query is required"}), 400
             
-        if not system_id:
-            return jsonify({"error": "system_id is required"}), 400
+        if not part_id:
+            return jsonify({"error": "part_id is required"}), 400
+            
+        if search_type not in ['text', 'semantic']:
+            return jsonify({"error": "search_type must be 'text' or 'semantic'"}), 400
         
-        # Generate embedding for query
-        query_embedding = embedding_manager.generate_embedding(query)
+        # Get conversations for this part
+        filter_dict = {'part_id': part_id}
+        conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
         
-        if not query_embedding:
-            return jsonify({"error": "Failed to generate embedding for query"}), 500
+        # For semantic search
+        if search_type == 'semantic' and EMBEDDINGS_AVAILABLE:
+            # Generate embedding for query
+            query_embedding = embedding_manager.generate_embedding(query)
+            
+            if not query_embedding:
+                return jsonify({"error": "Failed to generate embedding for query"}), 500
+            
+            # Perform vector similarity search for messages
+            results = current_app.db_adapter.query_vector_similarity(
+                CONVERSATION_MESSAGE_TABLE,
+                ConversationMessage,
+                'embedding',
+                query_embedding,
+                limit,
+                filter_dict={'part_id': part_id}  # Add filter for part_id
+            )
+            
+            # Get unique conversation IDs from results
+            conversation_ids = set(result.get('conversation_id') for result in results if result.get('conversation_id'))
+            
+            # Filter conversations to only those with matching messages
+            filtered_conversations = [conv for conv in conversations if conv.get('id') in conversation_ids]
+            
+        # For text search (simple substring matching)
+        else:
+            # Simple text search implementation
+            query_lower = query.lower()
+            filtered_conversations = []
+            
+            # Get all messages for conversations with this part_id
+            for conversation in conversations:
+                conv_id = conversation.get('id')
+                if not conv_id:
+                    continue
+                
+                # Get messages for this conversation
+                filter_dict = {'conversation_id': conv_id}
+                messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
+                
+                # Check if any message content contains the query text
+                for message in messages:
+                    content = message.get('content', '')
+                    if content and query_lower in content.lower():
+                        filtered_conversations.append(conversation)
+                        break
         
-        # Perform vector similarity search
-        results = current_app.db_adapter.query_vector_similarity(
-            CONVERSATION_MESSAGE_TABLE,
-            ConversationMessage,
-            'embedding',
-            query_embedding,
-            limit
-        )
-        
-        # Enrich results with conversation information
-        enriched_results = []
-        seen_conversation_ids = set()
-        
-        for result in results:
-            conversation_id = result.get('conversation_id')
-            
-            # Skip duplicate conversations
-            if conversation_id in seen_conversation_ids:
-                continue
-            
-            seen_conversation_ids.add(conversation_id)
-            
-            # Get conversation
-            conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
-            
-            if not conversation:
-                continue
-            
-            # Check if conversation belongs to requested system
-            if conversation.get('system_id') != system_id:
-                continue
-            
-            # Get part if available
-            part = None
-            part_id = conversation.get('part_id')
-            
-            if part_id:
-                part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-            
-            # Add to enriched results
-            enriched_results.append({
-                "message": result,
-                "conversation": conversation,
-                "part": part,
-                "similarity_score": result.get('distance')
-            })
-        
-        return jsonify(enriched_results)
+        return jsonify({"conversations": filtered_conversations})
     except Exception as e:
         logger.error(f"Error searching conversations: {str(e)}")
         return jsonify({"error": "An error occurred while searching conversations"}), 500
@@ -548,4 +547,190 @@ def find_similar_messages():
         return jsonify(enriched_results)
     except Exception as e:
         logger.error(f"Error finding similar messages: {str(e)}")
-        return jsonify({"error": "An error occurred while finding similar messages"}), 500 
+        return jsonify({"error": "An error occurred while finding similar messages"}), 500
+
+@conversations_bp.route('/conversations/<conversation_id>/summary', methods=['POST'])
+@auth_required
+def generate_conversation_summary(conversation_id):
+    """Generate or update a summary for a conversation.
+    
+    Args:
+        conversation_id: Conversation ID
+        
+    Returns:
+        JSON response with updated conversation including summary.
+    """
+    try:
+        # Validate conversation exists
+        conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
+        if not conversation:
+            return jsonify({"error": "Conversation not found"}), 404
+        
+        # Get messages for this conversation
+        filter_dict = {'conversation_id': conversation_id}
+        messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
+        
+        # Sort messages by timestamp
+        messages.sort(key=lambda x: x.get('timestamp', ''))
+        
+        # Filter valid messages (with content)
+        valid_messages = [msg for msg in messages if msg.get('content')]
+        
+        # Generate a simple summary
+        summary = ""
+        
+        if not valid_messages:
+            # No valid messages, use a default summary
+            summary = "Empty conversation"
+        elif len(valid_messages) == 1:
+            # Just one message - use first few words
+            content = valid_messages[0].get('content', '')
+            words = content.split()
+            summary = ' '.join(words[:5]) + ('...' if len(words) > 5 else '')
+        else:
+            # Multiple messages - try using LLM if available
+            try:
+                if LLM_AVAILABLE:
+                    # Get part information for context
+                    part_id = conversation.get('part_id')
+                    part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+                    part_name = part.get('name', 'Part') if part else 'Part'
+                    
+                    # Create a simple prompt with just the first and last messages for brevity
+                    first_msg = valid_messages[0]
+                    last_msg = valid_messages[-1]
+                    
+                    conversation_text = f"{first_msg.get('role', 'unknown')}: {first_msg.get('content', '')}\n"
+                    if len(valid_messages) > 2:
+                        conversation_text += "... [middle messages omitted] ...\n"
+                    conversation_text += f"{last_msg.get('role', 'unknown')}: {last_msg.get('content', '')}"
+                    
+                    summary_prompt = f"""
+                    Briefly summarize what this conversation with {part_name} is about in 5-7 words only:
+                    
+                    {conversation_text}
+                    
+                    Summary (5-7 words only):
+                    """
+                    
+                    # Generate summary with LLM
+                    llm_summary = llm_service.generate_response(summary_prompt)
+                    summary = llm_summary.strip('"\'.\n').strip()
+                    
+                    # Limit length
+                    if len(summary.split()) > 10:  
+                        summary = ' '.join(summary.split()[:7])
+                else:
+                    # No LLM - use first message approach
+                    raise Exception("LLM not available")
+            except Exception as e:
+                logger.warning(f"LLM summary failed, falling back to simple approach: {str(e)}")
+                # Simple approach - use first user message as summary
+                first_user_msg = next((m for m in valid_messages if m.get('role') == 'user'), None) or valid_messages[0]
+                content = first_user_msg.get('content', '')
+                words = content.split()
+                summary = ' '.join(words[:5]) + ('...' if len(words) > 5 else '')
+        
+        # Update the conversation with the summary
+        update_data = {'summary': summary}
+        updated_conversation = current_app.db_adapter.update(CONVERSATION_TABLE, PartConversation, conversation_id, update_data)
+        
+        if not updated_conversation:
+            return jsonify({"error": "Failed to update conversation with summary"}), 500
+            
+        logger.info(f"Generated summary for conversation {conversation_id}: {summary}")
+        return jsonify({"conversation": updated_conversation})
+            
+    except Exception as e:
+        logger.error(f"Error generating conversation summary: {str(e)}")
+        return jsonify({"error": "An error occurred while generating the summary"}), 500
+
+@conversations_bp.route('/parts/<part_id>/conversations', methods=['GET'])
+@auth_required
+def get_conversations_by_part(part_id):
+    """Get all conversations for a specific part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with conversations data.
+    """
+    try:
+        # Validate part exists
+        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
+            
+        # Get system_id from part
+        system_id = part.get('system_id')
+        
+        # Build filter dictionary
+        filter_dict = {'part_id': part_id}
+        
+        # Use the database adapter
+        conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
+        
+        # Enrich conversations with message counts to help frontend make better decisions
+        for conversation in conversations:
+            try:
+                # Get message count for each conversation
+                msg_filter = {'conversation_id': conversation.get('id')}
+                message_count = current_app.db_adapter.count(CONVERSATION_MESSAGE_TABLE, ConversationMessage, msg_filter)
+                conversation['message_count'] = message_count
+            except Exception as e:
+                logger.warning(f"Could not get message count for conversation {conversation.get('id')}: {str(e)}")
+                # Don't fail if we can't get the count, just continue
+        
+        return jsonify({"conversations": conversations})
+    except Exception as e:
+        logger.error(f"Error fetching conversations for part: {str(e)}")
+        return jsonify({"error": "An error occurred while fetching conversations"}), 500
+
+@conversations_bp.route('/parts/<part_id>/conversations', methods=['POST'])
+@auth_required
+def create_conversation_for_part(part_id):
+    """Create a new conversation for a specific part.
+    
+    Args:
+        part_id: Part ID
+        
+    Returns:
+        JSON response with created conversation data.
+    """
+    try:
+        data = request.json
+        
+        # Validate part exists
+        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
+        if not part:
+            return jsonify({"error": "Part not found"}), 404
+        
+        # Extract system_id from part
+        system_id = part.get('system_id')
+        
+        # Extract title from request or generate one
+        title = data.get('title')
+        if not title:
+            title = f"Conversation with {part.get('name', 'Part')} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        # Create conversation
+        conversation_data = {
+            'title': title,
+            'part_id': part_id,
+            'system_id': system_id,
+        }
+        
+        # Add timestamp if provided
+        if 'timestamp' in data:
+            conversation_data['timestamp'] = data.get('timestamp')
+        
+        conversation = current_app.db_adapter.create(CONVERSATION_TABLE, PartConversation, conversation_data)
+        
+        if not conversation:
+            return jsonify({"error": "Failed to create conversation"}), 500
+        
+        return jsonify({"conversation": conversation}), 201
+    except Exception as e:
+        logger.error(f"Error creating conversation for part: {str(e)}")
+        return jsonify({"error": "An error occurred while creating the conversation"}), 500 

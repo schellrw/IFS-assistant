@@ -302,7 +302,7 @@ const PartDetailsPage = () => {
                   onClick={() => navigate(`/chat/${partId}`)}
                   fullWidth
                 >
-                  Start Chat
+                  + Start New Chat
                 </Button>
                 <Button
                   variant="outlined"

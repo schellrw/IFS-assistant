@@ -3,6 +3,7 @@ old/
 secret/
 cache/
 .cursorrules
+.cursor/
 nbs/
 .venv-new/
 

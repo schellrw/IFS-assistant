@@ -17,7 +17,11 @@ import {
   ChatPage,
   ConversationsPage
 } from './pages';
-import { Navigation, ProtectedRoute } from './components';
+import { 
+  Navigation, 
+  ProtectedRoute, 
+  SessionExpiryWarning 
+} from './components';
 import { ErrorBoundary } from 'react-error-boundary';
 import { injectDebugger } from './debug-helper';
 
@@ -64,6 +68,7 @@ function App() {
         <Router>
           <div className="App">
             <Navigation />
+            <SessionExpiryWarning />
             <Box sx={{ p: 2 }}>
               <Routes>
                 {/* Public routes */}

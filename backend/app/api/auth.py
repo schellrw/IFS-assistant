@@ -160,4 +160,45 @@ def get_current_user():
     if not g.current_user:
         return jsonify({"error": "User not found"}), 404
         
-    return jsonify(g.current_user) 
+    return jsonify(g.current_user)
+
+@auth_bp.route('/refresh-token', methods=['POST'])
+@auth_required
+def refresh_token():
+    """Refresh the user's access token before it expires.
+    
+    This endpoint allows extending the user's session without requiring
+    them to log in again, as long as their current token is still valid.
+    
+    Returns:
+        JSON response with a new access token.
+    """
+    try:
+        if not g.current_user or not g.current_user.get('id'):
+            return jsonify({"error": "User not found"}), 404
+            
+        user_id = g.current_user.get('id')
+        
+        if use_supabase_auth:
+            # For Supabase Auth, you'd implement their token refresh mechanism
+            # This is a placeholder - implement actual Supabase refresh logic
+            try:
+                from ..utils.supabase_client import supabase
+                # This would need to be implemented based on Supabase's API
+                logger.warning("Supabase token refresh not fully implemented")
+                return jsonify({"error": "Token refresh for Supabase not implemented"}), 501
+            except Exception as e:
+                logger.error(f"Supabase token refresh error: {str(e)}")
+                return jsonify({"error": "Failed to refresh token"}), 500
+        else:
+            # For JWT, create a new token with the same identity
+            new_access_token = create_access_token(identity=user_id)
+            
+            logger.info(f"Token refreshed for user {user_id}")
+            return jsonify({
+                "message": "Token refreshed successfully",
+                "access_token": new_access_token
+            })
+    except Exception as e:
+        logger.error(f"Token refresh error: {str(e)}")
+        return jsonify({"error": "An error occurred during token refresh"}), 500 

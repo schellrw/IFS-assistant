@@ -11,6 +11,7 @@ import {
   ListItemText,
   ListItemButton,
   ListItemAvatar,
+  ListItemSecondaryAction,
   Avatar,
   Button,
   TextField,
@@ -20,11 +21,17 @@ import {
   CircularProgress,
   Divider,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SearchIcon from '@mui/icons-material/Search';
 import ChatIcon from '@mui/icons-material/Chat';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -38,6 +45,9 @@ const ConversationsPage = () => {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState('text'); // 'text' or 'semantic'
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [conversationToDelete, setConversationToDelete] = useState(null);
   
   const part = system?.parts[partId];
 
@@ -63,21 +73,47 @@ const ConversationsPage = () => {
   };
 
   const createNewConversation = async () => {
+    if (isNavigating) {
+      return;
+    }
+    
+    setIsNavigating(true);
     setIsLoading(true);
     setError('');
     
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/api/parts/${partId}/conversations`,
-        { title: `New Conversation with ${part?.name || 'Part'}` }
-      );
-      
-      // Navigate to the new conversation
-      navigate(`/chat/${partId}?conversation=${response.data.conversation.id}`);
+      navigate(`/chat/${partId}`);
       
     } catch (err) {
-      console.error('Error creating conversation:', err);
+      console.error('Error navigating to new conversation:', err);
       setError('Failed to create a new conversation. Please try again.');
+      setIsLoading(false);
+      setTimeout(() => {
+        setIsNavigating(false);
+      }, 1000);
+    }
+  };
+
+  const handleDeleteClick = (conversation) => {
+    setConversationToDelete(conversation);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!conversationToDelete) return;
+    
+    setIsLoading(true);
+    setDeleteDialogOpen(false);
+    
+    try {
+      await axios.delete(`${API_BASE_URL}/api/conversations/${conversationToDelete.id}`);
+      
+      // Refresh the conversations list
+      fetchConversations();
+      
+    } catch (err) {
+      console.error('Error deleting conversation:', err);
+      setError('Failed to delete conversation. Please try again.');
       setIsLoading(false);
     }
   };
@@ -250,7 +286,21 @@ const ConversationsPage = () => {
               {conversations.map((conversation, index) => (
                 <React.Fragment key={conversation.id}>
                   {index > 0 && <Divider component="li" />}
-                  <ListItem disablePadding>
+                  <ListItem 
+                    disablePadding
+                    secondaryAction={
+                      <IconButton 
+                        edge="end" 
+                        aria-label="delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClick(conversation);
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    }
+                  >
                     <ListItemButton
                       onClick={() => navigate(`/chat/${partId}?conversation=${conversation.id}`)}
                     >
@@ -261,7 +311,18 @@ const ConversationsPage = () => {
                       </ListItemAvatar>
                       <ListItemText
                         primary={conversation.title || `Conversation with ${part.name}`}
-                        secondary={formatDate(conversation.created_at)}
+                        secondary={
+                          <>
+                            <Typography 
+                              component="span" 
+                              variant="body2" 
+                              color="text.primary" 
+                              sx={{ display: 'block' }}
+                            >
+                              {formatDate(conversation.created_at)}
+                            </Typography>
+                          </>
+                        }
                         primaryTypographyProps={{
                           fontWeight: 'medium',
                         }}
@@ -274,6 +335,27 @@ const ConversationsPage = () => {
           )}
         </Paper>
       </Box>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">Delete Conversation</DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete this conversation? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirmDelete} color="error" autoFocus>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

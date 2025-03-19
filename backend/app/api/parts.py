@@ -5,8 +5,11 @@ Supports both SQLAlchemy and Supabase backends.
 import logging
 from flask import Blueprint, request, jsonify, current_app, g
 from marshmallow import Schema, fields, ValidationError, EXCLUDE
+from datetime import datetime
+from uuid import uuid4
+from typing import Dict, Any, List, Optional
 
-from ..models import db, Part
+from ..models import db, Part, PartConversation
 from ..utils.auth_adapter import auth_required
 
 parts_bp = Blueprint('parts', __name__)
@@ -222,6 +225,18 @@ def get_part_conversations(part_id):
     Returns:
         JSON response with conversations data.
     """
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        logger.info(f"Handling OPTIONS request for /parts/{part_id}/conversations")
+        # Set CORS headers for OPTIONS response
+        response = current_app.make_response(('', 204))
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        })
+        return response
+
     try:
         # Verify the part exists
         part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
@@ -238,7 +253,7 @@ def get_part_conversations(part_id):
         logger.error(f"Error fetching part conversations: {str(e)}")
         return jsonify({"error": "An error occurred while fetching part conversations"}), 500
 
-@parts_bp.route('/parts/<part_id>/conversations', methods=['POST'])
+@parts_bp.route('/parts/<part_id>/conversations', methods=['POST', 'OPTIONS'])
 @auth_required
 def create_part_conversation(part_id):
     """Create a new conversation for a specific part.
@@ -249,6 +264,18 @@ def create_part_conversation(part_id):
     Returns:
         JSON response with created conversation data.
     """
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        logger.info(f"Handling OPTIONS request for POST /parts/{part_id}/conversations")
+        # Set CORS headers for OPTIONS response
+        response = current_app.make_response(('', 204))
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        })
+        return response
+        
     try:
         # Verify the part exists
         part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
@@ -257,6 +284,42 @@ def create_part_conversation(part_id):
             
         data = request.json
         title = data.get('title', f"Conversation with {part.get('name', 'Part')}")
+        timestamp = data.get('timestamp')  # Optional timestamp to detect duplicates
+        
+        # Check for potential duplicate conversations (created in the last 5 seconds)
+        if timestamp:
+            from ..models import PartConversation
+            import datetime
+            from datetime import timezone
+            
+            # Get recent conversations
+            filter_dict = {'part_id': part_id}
+            recent_conversations = current_app.db_adapter.get_all('part_conversations', PartConversation, filter_dict)
+            
+            # Parse the provided timestamp
+            try:
+                request_time = datetime.datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                # If timestamp is invalid, just continue with creation
+                request_time = datetime.datetime.now(timezone.utc)
+                
+            # Check if any conversations were created very recently (within 5 seconds)
+            for conv in recent_conversations:
+                try:
+                    # Parse the created_at timestamp
+                    created_time_str = conv.get('created_at')
+                    if created_time_str:
+                        created_time = datetime.datetime.fromisoformat(created_time_str.replace('Z', '+00:00'))
+                        time_diff = abs((request_time - created_time).total_seconds())
+                        
+                        # If a very recent conversation exists, return it instead of creating a new one
+                        if time_diff < 5:
+                            logger.info(f"Found duplicate conversation request, returning existing conversation {conv.get('id')}")
+                            return jsonify({"conversation": conv, "duplicate": True}), 200
+                except (ValueError, AttributeError) as e:
+                    # If parsing fails, just continue checking other conversations
+                    logger.warning(f"Error parsing timestamp: {e}")
+                    continue
         
         # Create conversation
         from ..models import PartConversation
