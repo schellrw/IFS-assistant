@@ -95,7 +95,7 @@ const Navigation = () => {
               textDecoration: 'none',
             }}
           >
-            IFS Explorer
+            IFS Center
           </Typography>
           
           <Box sx={{ flexGrow: 1 }} />

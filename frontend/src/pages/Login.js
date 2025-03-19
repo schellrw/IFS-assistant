@@ -36,7 +36,7 @@ const Login = () => {
       <Box sx={{ mt: 8 }}>
         <Paper sx={{ p: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom align="center">
-            IFS Explorer
+            IFS Center
           </Typography>
           
           {error && (

@@ -1,5 +1,5 @@
 /**
- * Shared constants for the IFS Explorer application
+ * Shared constants for the IFS Center application
  */
 
 // Reflective prompts for journaling and reflection
