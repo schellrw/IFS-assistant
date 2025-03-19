@@ -84,16 +84,24 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     
     # Configure CORS
     CORS(app, resources={r"/api/*": {
-        "origins": app.config.get('CORS_ORIGINS'),
+        "origins": app.config.get('CORS_ORIGINS', '*'),
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"]
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "supports_credentials": True
     }})
     
     # Add global OPTIONS handler for preflight requests
     @app.route('/api/<path:path>', methods=['OPTIONS'])
     def handle_options(path):
         """Global OPTIONS handler to ensure CORS preflight requests work for all routes."""
-        return '', 204
+        app.logger.info(f"Global OPTIONS handler called for path: /api/{path}")
+        response = app.make_response(('', 204))
+        response.headers.extend({
+            'Access-Control-Allow-Origin': app.config.get('CORS_ORIGINS', '*') if isinstance(app.config.get('CORS_ORIGINS'), str) else '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
+        })
+        return response
     
     # Add test endpoints for connectivity testing
     @app.route('/api/test', methods=['GET', 'OPTIONS'])

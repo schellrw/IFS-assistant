@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
 import {
   Container,
@@ -22,6 +22,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const ChatPage = () => {
   const { partId } = useParams();
+  const [searchParams] = useSearchParams();
+  const conversationId = searchParams.get('conversation');
   const navigate = useNavigate();
   const { system } = useIFS();
   const [message, setMessage] = useState('');
@@ -40,47 +42,83 @@ const ChatPage = () => {
   // Load or create a conversation on initial render
   useEffect(() => {
     if (partId) {
-      fetchOrCreateConversation();
+      if (conversationId) {
+        // If a specific conversation ID is provided in URL, load that conversation
+        fetchConversation(conversationId);
+      } else {
+        // If no conversation ID is provided, create a new conversation
+        createNewConversation();
+      }
     }
-  }, [partId]);
+  }, [partId, conversationId]);
 
-  const fetchOrCreateConversation = async () => {
+  const fetchConversation = async (id) => {
     setIsLoading(true);
     setError('');
     
     try {
-      // First check if there are existing conversations
-      const response = await axios.get(`${API_BASE_URL}/api/parts/${partId}/conversations`);
+      // Get conversation details
+      const conversationResponse = await axios.get(
+        `${API_BASE_URL}/api/conversations/${id}`
+      );
       
-      let currentConversation;
-      
-      if (response.data.conversations && response.data.conversations.length > 0) {
-        // Use the most recent conversation
-        currentConversation = response.data.conversations[0];
+      if (conversationResponse.data && conversationResponse.data.conversation) {
+        setConversation(conversationResponse.data.conversation);
+        setMessages(conversationResponse.data.messages || []);
       } else {
-        // Create a new conversation
-        const createResponse = await axios.post(
-          `${API_BASE_URL}/api/parts/${partId}/conversations`,
-          { title: `Conversation with ${part?.name || 'Part'}` }
-        );
-        currentConversation = createResponse.data.conversation;
+        throw new Error('Conversation not found');
       }
-      
-      setConversation(currentConversation);
-      
-      // Load messages for this conversation
-      if (currentConversation) {
-        const messagesResponse = await axios.get(
-          `${API_BASE_URL}/api/conversations/${currentConversation.id}`
-        );
-        setMessages(messagesResponse.data.messages || []);
-      }
-      
     } catch (err) {
-      console.error('Error fetching/creating conversation:', err);
+      console.error('Error fetching conversation:', err);
       setError('Failed to load conversation. Please try again.');
+      
+      // If conversation doesn't exist or can't be loaded, create a new one
+      createNewConversation();
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Add a variable to track if a conversation creation is in progress
+  let isCreatingConversation = false;
+
+  const createNewConversation = async () => {
+    // Check if we're already creating a conversation to prevent duplicates
+    if (isCreatingConversation) {
+      console.log('Creation already in progress, preventing duplicate request');
+      return;
+    }
+    
+    isCreatingConversation = true;
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Create a new conversation with a unique timestamp
+      // Use ISO string format to ensure uniqueness down to milliseconds
+      const timestamp = new Date().toISOString();
+      const createResponse = await axios.post(
+        `${API_BASE_URL}/api/parts/${partId}/conversations`,
+        { title: `Conversation with ${part?.name || 'Part'} - ${new Date().toLocaleString()}`, timestamp }
+      );
+      
+      // Set the new conversation and update URL
+      const newConversation = createResponse.data.conversation;
+      setConversation(newConversation);
+      setMessages([]);
+      
+      // Update URL to include conversation ID without reloading the page
+      navigate(`/chat/${partId}?conversation=${newConversation.id}`, { replace: true });
+      
+    } catch (err) {
+      console.error('Error creating conversation:', err);
+      setError('Failed to create a new conversation. Please try again.');
+    } finally {
+      setIsLoading(false);
+      // Reset the flag after a short delay to prevent rapid sequential requests
+      setTimeout(() => {
+        isCreatingConversation = false;
+      }, 1000);
     }
   };
 
@@ -207,10 +245,10 @@ const ChatPage = () => {
       <Box sx={{ my: 4 }}>
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(`/parts/${partId}`)}
+          onClick={() => navigate(`/conversations/${partId}`)}
           sx={{ mb: 2 }}
         >
-          Back to Part Details
+          Back to Conversations
         </Button>
 
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
